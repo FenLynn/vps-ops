@@ -16,21 +16,50 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
-# 1. System Update & Dependencies
-echo "[1/7] Updating System..."
-apt-get update && apt-get install -y \
-    curl wget git ufw fail2ban \
-    uidmap slirp4netns \
-    unattended-upgrades \
-    apt-transport-https \
-    ca-certificates \
-    gnupg \
-    lsb-release
+# 1. OS Detection
+echo "[1/8] Detecting OS..."
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS=$ID
+    VER=$VERSION_ID
+else
+    echo "Unknown OS. Defaulting to generic logic."
+    OS="unknown"
+fi
 
-# 2. Configure Docker (Mainland Mirrors)
-echo "[2/7] Configuring Docker..."
+echo "Detected OS: $OS ($VER)"
+
+# 2. Package Management & Dependencies
+echo "[2/8] Installing Dependencies..."
+case "$OS" in
+    ubuntu|debian)
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update && apt-get install -y \
+            curl wget git ufw fail2ban \
+            uidmap slirp4netns unattended-upgrades \
+            ca-certificates gnupg lsb-release
+        FW_TOOL="ufw"
+        AUTH_LOG="/var/log/auth.log"
+        ;;
+    centos|rhel|almalinux|rocky|alinux)
+        yum makecache && yum install -y \
+            curl wget git firewalld fail2ban \
+            ca-certificates gnupg2
+        FW_TOOL="firewalld"
+        AUTH_LOG="/var/log/secure"
+        # Ensure EPEL is available for fail2ban if needed (usually needed for CentOS 7/8)
+        # yum install -y epel-release && yum install -y fail2ban
+        ;;
+    *)
+        echo "Unsupported OS for automatic package installation. Please install dependencies manually."
+        exit 1
+        ;;
+esac
+
+# 3. Configure Docker (Mainland Mirrors)
+echo "[3/8] Configuring Docker..."
 if ! command -v docker &> /dev/null; then
-    echo "Installing Docker..."
+    echo "Installing Docker via get.docker.com..."
     curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun
 fi
 
@@ -48,16 +77,24 @@ cat > /etc/docker/daemon.json <<EOF
 }
 EOF
 systemctl daemon-reload
+systemctl enable --now docker
 systemctl restart docker
 
-# 3. User Creation & SSH Keys
-echo "[3/7] Setting up User '${ADMIN_USER}'..."
+# 4. User Creation & SSH Keys
+echo "[4/8] Setting up User '${ADMIN_USER}'..."
 if ! id "${ADMIN_USER}" &>/dev/null; then
-    useradd -m -s /bin/bash -G sudo,docker ${ADMIN_USER}
+    useradd -m -s /bin/bash ${ADMIN_USER}
+    # Add to appropriate groups
+    if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
+        usermod -aG sudo,docker ${ADMIN_USER}
+    else
+        usermod -aG wheel,docker ${ADMIN_USER}
+    fi
     echo "${ADMIN_USER} created."
     
-    # Allow NOPASSWD for automation (Optional, but requested in ADD)
-    echo "${ADMIN_USER} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-cloud-init-users
+    # Allow NOPASSWD for automation
+    mkdir -p /etc/sudoers.d
+    echo "${ADMIN_USER} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-vps-ops-user
 fi
 
 # Migrate SSH Keys
@@ -69,35 +106,41 @@ chown -R ${ADMIN_USER}:${ADMIN_USER} /home/${ADMIN_USER}/.ssh
 chmod 700 /home/${ADMIN_USER}/.ssh
 chmod 600 /home/${ADMIN_USER}/.ssh/authorized_keys
 
-# 4. SSH Hardening
-echo "[4/7] Hardening SSH..."
+# 5. SSH Hardening
+echo "[5/8] Hardening SSH..."
 sed -i "s/#Port 22/Port ${SSH_PORT}/g" /etc/ssh/sshd_config
-sed -i "s/Port 22/Port ${SSH_PORT}/g" /etc/ssh/sshd_config
-sed -i 's/PermitRootLogin yes/PermitRootLogin no/g' /etc/ssh/sshd_config
-sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
-# Ensure service directory exists for Fail2Ban checks
+sed -i "s/^Port 22/Port ${SSH_PORT}/g" /etc/ssh/sshd_config
+sed -i 's/^PermitRootLogin yes/PermitRootLogin no/g' /etc/ssh/sshd_config
+sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/g' /etc/ssh/sshd_config
+sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
+sed -i 's/^PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
+
+# Ensure service directory exists
 mkdir -p /var/run/sshd
 
-# 5. Network & Firewall
-echo "[5/7] Configuring UFW..."
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow ${SSH_PORT}/tcp
-ufw allow ${DERP_PORT}/tcp
-ufw allow ${DERP_STUN_PORT}/udp
-# Allow Docker container traffic
-ufw route allow in on ${DOCKER_NET} out on any
-ufw allow in on any out on ${DOCKER_NET}
-# Loopback
-ufw allow from 127.0.0.1
-# Enable
-# ufw --force enable # Commented out to prevent lockout during script run, user must enable manually or verify first
+# 6. Network & Firewall
+echo "[6/8] Configuring Firewall ($FW_TOOL)..."
+if [ "$FW_TOOL" = "ufw" ]; then
+    ufw default deny incoming
+    ufw default allow outgoing
+    ufw allow ${SSH_PORT}/tcp
+    ufw allow ${DERP_PORT}/tcp
+    ufw allow ${DERP_STUN_PORT}/udp
+    ufw allow from 127.0.0.1
+    # ufw --force enable
+elif [ "$FW_TOOL" = "firewalld" ]; then
+    systemctl enable --now firewalld
+    firewall-cmd --permanent --add-port=${SSH_PORT}/tcp
+    firewall-cmd --permanent --add-port=${DERP_PORT}/tcp
+    firewall-cmd --permanent --add-port=${DERP_STUN_PORT}/udp
+    firewall-cmd --reload
+fi
 
-# 6. Performance & Tools
-echo "[6/7] Tuning Performance..."
+# 7. Performance & Tools
+echo "[7/8] Tuning Performance..."
 # Swap
-if [ ! -f /swapfile ]; then
-    fallocate -l 2G /swapfile
+if [ ! -f /swapfile ] && [ ! -b /dev/vdb1 ]; then # Basic check
+    fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
     chmod 600 /swapfile
     mkswap /swapfile
     swapon /swapfile
@@ -105,7 +148,7 @@ if [ ! -f /swapfile ]; then
 fi
 
 # BBR
-if ! grep -q "net.core.default_qdisc=fq" /etc/sysctl.conf; then
+if ! sysctl net.ipv4.tcp_congestion_control | grep -q "bbr"; then
     echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
     echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
     sysctl -p
@@ -113,20 +156,21 @@ fi
 
 # Lazydocker
 if ! command -v lazydocker &> /dev/null; then
-    curl https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | bash
+    curl https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | bash || true
 fi
 
-# 7. Fail2Ban
-echo "[7/7] Configuring Fail2Ban..."
+# 8. Fail2Ban
+echo "[8/8] Configuring Fail2Ban..."
 cat > /etc/fail2ban/jail.local <<EOF
 [sshd]
 enabled = true
 port = ${SSH_PORT}
 filter = sshd
-logpath = /var/log/auth.log
+logpath = ${AUTH_LOG}
 maxretry = 3
 bantime = 86400
 EOF
+systemctl enable --now fail2ban
 systemctl restart fail2ban
 
 # Create Data Directories
@@ -137,6 +181,12 @@ mkdir -p ${DOCKER_ROOT}/stable/uptime-kuma
 chown -R ${ADMIN_USER}:${ADMIN_USER} ${DOCKER_ROOT}
 
 echo "=== Initialization Complete ==="
-echo "Please set ADMIN_PASS for '${ADMIN_USER}' manually if needed."
-echo "Don't forget to: ufw enable"
-echo "Restart SSH service manually after verifying config: systemctl restart sshd"
+echo "Detected OS: $OS"
+echo "SSH Port has been set to: ${SSH_PORT}"
+echo "Firewall ($FW_TOOL) has been configured."
+echo "----------------------------------------------------------"
+echo "Next Steps:"
+echo "1. Verify SSH config: sshd -t"
+echo "2. Restart SSH: systemctl restart sshd"
+echo "3. Enable Firewall: ($FW_TOOL enable/start)"
+echo "4. LOGIN VIA NEW PORT ${SSH_PORT} AS USER ${ADMIN_USER} BEFORE CLOSING THIS SESSION!"
