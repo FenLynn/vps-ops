@@ -37,7 +37,7 @@ services:
 
   # 3. Uptime Kuma (Monitoring)
   uptime-kuma:
-    image: ghcr.io/louislam/uptime-kuma:1
+    image: docker.m.daocloud.io/louislam/uptime-kuma:1
     container_name: uptime-kuma
     restart: unless-stopped
     volumes:
@@ -48,7 +48,7 @@ services:
 
   # 4. Backup Service
   backup:
-    image: ghcr.io/offen/docker-volume-backup:latest
+    image: docker.m.daocloud.io/offen/docker-volume-backup:latest
     container_name: backup
     restart: unless-stopped
     environment:
