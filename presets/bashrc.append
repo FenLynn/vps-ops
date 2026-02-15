@@ -2,14 +2,20 @@
 # --- vps-ops Custom Bash Presets ---
 
 # 1. Useful Aliases
-alias ll='ls -alF --color=auto'
-alias la='ls -A --color=auto'
+alias l.='ls -d .* --color=auto'
+alias ll='ls -lh --color=auto'
+alias la='ls -al --color=auto'
+alias ls='ls --color=auto'
+alias vi='vim'
 alias l='ls -CF --color=auto'
 alias ..='cd ..'
 alias ...='cd ../..'
 alias grep='grep --color=auto'
 alias fgrep='fgrep --color=auto'
 alias egrep='egrep --color=auto'
+
+
+
 
 # Docker Shortcuts
 alias dps='docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"'
@@ -34,3 +40,16 @@ if command -v ip &> /dev/null; then
 fi
 
 echo "✅ vps-ops Shell Presets Loaded."
+
+
+
+###################
+
+# User specific environment
+#if ! [[ "$PATH" =~ "$HOME/.local/bin:$HOME/bin:" ]]
+#then
+#   PATH="$HOME/.local/bin:$HOME/bin:$PATH"
+#fi
+#export PATH
+
+#export PS1='\[\e[0;35m\][\[\e[0m\]\[\e[0;32m\]\u@\h \A\[\e[0m\] \[\e[33m\]\W\[\e[0m\]\[\e[0;35m\]]\$\[\e[0m\] '
