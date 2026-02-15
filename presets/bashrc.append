@@ -1,0 +1,36 @@
+
+# --- vps-ops Custom Bash Presets ---
+
+# 1. Useful Aliases
+alias ll='ls -alF --color=auto'
+alias la='ls -A --color=auto'
+alias l='ls -CF --color=auto'
+alias ..='cd ..'
+alias ...='cd ../..'
+alias grep='grep --color=auto'
+alias fgrep='fgrep --color=auto'
+alias egrep='egrep --color=auto'
+
+# Docker Shortcuts
+alias dps='docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"'
+alias dlogs='docker logs -f --tail 100'
+
+# 2. History Hardening
+HISTSIZE=10000
+HISTFILESIZE=20000
+shopt -s histappend
+export PROMPT_COMMAND="history -a; $PROMPT_COMMAND"
+
+# 3. Enhanced Color Prompt (Cyan for regular user, Red if root)
+if [ "$EUID" -ne 0 ]; then
+    PS1='\[\e[01;36m\]\u@\h\[\e[00m\]:\[\e[01;34m\]\w\[\e[00m\]\$ '
+else
+    PS1='\[\e[01;31m\]\u@\h\[\e[00m\]:\[\e[01;34m\]\w\[\e[00m\]\# '
+fi
+
+# 4. Networking Tools (If available)
+if command -v ip &> /dev/null; then
+    alias myip="ip -4 addr show eth0 | grep -oP '(?<=inet\s)\d+(\.\d+){3}'"
+fi
+
+echo "✅ vps-ops Shell Presets Loaded."

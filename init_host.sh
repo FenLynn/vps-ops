@@ -174,11 +174,37 @@ systemctl enable --now fail2ban
 systemctl restart fail2ban
 
 # Create Data Directories
-echo "Creating Directories at ${DOCKER_ROOT}..."
+echo "[8/9] Creating Directories at ${DOCKER_ROOT}..."
 mkdir -p ${DOCKER_ROOT}/global/certs
 mkdir -p ${DOCKER_ROOT}/stable/new-api
 mkdir -p ${DOCKER_ROOT}/stable/uptime-kuma
 chown -R ${ADMIN_USER}:${ADMIN_USER} ${DOCKER_ROOT}
+
+# 9. Apply User Presets (Shell & Vim)
+echo "[9/9] Applying User Presets..."
+USER_HOME="/home/${ADMIN_USER}"
+
+# Vimrc
+if [ -f "presets/.vimrc" ]; then
+    cp presets/.vimrc "${USER_HOME}/.vimrc"
+    chown ${ADMIN_USER}:${ADMIN_USER} "${USER_HOME}/.vimrc"
+    echo "  - Installed .vimrc"
+fi
+
+# Bashrc Append
+if [ -f "presets/bashrc.append" ]; then
+    # Ensure idempodent append
+    if ! grep -q "vps-ops Custom Bash Presets" "${USER_HOME}/.bashrc" 2>/dev/null; then
+        cat presets/bashrc.append >> "${USER_HOME}/.bashrc"
+        echo "  - Appended bashrc.append"
+    fi
+fi
+
+# Also apply to root for convenience
+cp presets/.vimrc "/root/.vimrc" 2>/dev/null || true
+if ! grep -q "vps-ops Custom Bash Presets" "/root/.bashrc" 2>/dev/null; then
+    cat presets/bashrc.append >> "/root/.bashrc" 2>/dev/null || true
+fi
 
 echo "=== Initialization Complete ==="
 echo "Detected OS: $OS"
