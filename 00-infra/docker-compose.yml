@@ -1,7 +1,7 @@
 services:
   # 1. Certificate Manager (Wildcard)
   acme:
-    image: docker.1panel.live/neilpang/acme.sh:daemon
+    image: docker.rainbond.cc/neilpang/acme.sh:daemon
     container_name: acme.sh
     restart: unless-stopped
     command: daemon
@@ -14,7 +14,7 @@ services:
 
   # 2. Ingress Tunnel (Public Access)
   cloudflared:
-    image: docker.1panel.live/cloudflare/cloudflared:latest
+    image: docker.rainbond.cc/cloudflare/cloudflared:latest
     container_name: cloudflared
     restart: unless-stopped
     command: tunnel run --token ${CF_TOKEN:-dummy_token}
@@ -23,7 +23,7 @@ services:
 
   # 3. Auto-Updater
   watchtower:
-    image: docker.1panel.live/containrrr/watchtower:latest
+    image: docker.rainbond.cc/containrrr/watchtower:latest
     container_name: watchtower
     restart: unless-stopped
     environment:
