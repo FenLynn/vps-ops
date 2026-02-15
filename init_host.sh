@@ -42,6 +42,7 @@ case "$OS" in
         AUTH_LOG="/var/log/auth.log"
         ;;
     centos|rhel|almalinux|rocky|alinux)
+        yum install -y epel-release
         yum makecache && yum install -y \
             curl wget git firewalld fail2ban \
             ca-certificates gnupg2
