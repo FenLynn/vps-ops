@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # 1. Derp Server (High Availability Connector)
+  derper:
+    image: fredliang/derper:latest # Using a known working image or build your own
+    container_name: derper
+    restart: unless-stopped
+    ports:
+      - "${DERP_PORT}:${DERP_PORT}"
+      - "${DERP_STUN_PORT}:${DERP_STUN_PORT}/udp"
+    environment:
+      - DERP_DOMAIN=${DERP_DOMAIN}
+      - DERP_ADDR=:${DERP_PORT}
+      - DERP_CERT_MODE=manual
+    volumes:
+      # Mount certs from Layer 0 acme.sh
+      - ${DOCKER_ROOT}/global/certs/${DERP_DOMAIN}:/app/certs
+    networks:
+      - vps-net
+
+  # 2. AI Gateway (New API)
+  new-api:
+    image: calciumion/new-api:latest
+    container_name: new-api
+    restart: unless-stopped
+    volumes:
+      - ${DOCKER_ROOT}/stable/new-api:/data
+    environment:
+      - SQL_DSN=/data/new_api.db
+      - NODE_TYPE=master
+      - CHANNEL_UPDATE_FREQUENCY=30
+      - BATCH_UPDATE_ENABLED=true
+      - GLOBAL_API_RATE_LIMIT=180
+      - GLOBAL_WEB_RATE_LIMIT=60
+    networks:
+      - vps-net
+    # No ports exposed, access via Cloudflare Tunnel
+
+  # 3. Uptime Kuma (Monitoring)
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: uptime-kuma
+    restart: unless-stopped
+    volumes:
+      - ${DOCKER_ROOT}/stable/uptime-kuma:/app/data
+    networks:
+      - vps-net
+    # No ports exposed, access via Cloudflare Tunnel
+
+  # 4. Backup Service
+  backup:
+    image: offen/docker-volume-backup:latest
+    container_name: backup
+    restart: unless-stopped
+    environment:
+      - BACKUP_CRON_EXPRESSION=0 3 * * * # 3 AM Daily
+      - BACKUP_FILENAME=backup-%Y-%m-%dT%H-%M-%S.tar.gz
+      - BACKUP_RETENTION_DAYS=7
+    volumes:
+      - ${DOCKER_ROOT}:/backup/source:ro
+      - ${DOCKER_ROOT}/backups:/archive
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+networks:
+  vps-net:
+    external: true

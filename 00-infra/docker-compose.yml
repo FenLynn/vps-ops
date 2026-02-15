@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  # 1. Certificate Manager (Wildcard)
+  acme:
+    image: neilpang/acme.sh:daemon
+    container_name: acme.sh
+    restart: unless-stopped
+    command: daemon
+    volumes:
+      - ${DOCKER_ROOT}/global/certs:/acme.sh
+    environment:
+      - CF_Token=${CF_DNS_API_TOKEN}
+      - CF_Account_ID=${CLOUDFLARE_ACCOUNT_ID}
+    network_mode: host
+
+  # 2. Ingress Tunnel (Public Access)
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel run --token ${CF_TOKEN}
+    networks:
+      - vps-net
+
+  # 3. Auto-Updater
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_SCHEDULE=0 0 4 * * *  # 4 AM Daily
+      # Notifications via PushPlus (Shoutrrr format)
+      # Format: generic://webhook-url
+      - WATCHTOWER_NOTIFICATION_URL=generic://http://www.pushplus.plus/send?token=${PUSHPLUS_TOKEN}&title=Watchtower&content={{message}}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+networks:
+  vps-net:
+    external: true
