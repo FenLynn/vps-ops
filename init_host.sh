@@ -68,10 +68,10 @@ mkdir -p /etc/docker
 cat > /etc/docker/daemon.json <<EOF
 {
   "registry-mirrors": [
+    "https://dockerproxy.cn",
     "https://docker.xuanyuan.me",
     "https://docker.1ms.run",
-    "https://docker.rainbond.cc",
-    "https://docker.anyhub.us.kg"
+    "https://docker.rainbond.cc"
   ],
   "log-driver": "json-file",
   "log-opts": { "max-size": "10m", "max-file": "3" }
@@ -157,9 +157,9 @@ fi
 
 # Lazydocker (Optional, uses mirror for China)
 if ! command -v lazydocker &> /dev/null; then
-    echo "  - Attempting to install lazydocker (via ghp.ci mirror)..."
-    # Added timeout and fallback mirror (ghp.ci is currently very stable)
-    curl --connect-timeout 10 --max-time 60 -fsSL https://ghp.ci/https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | bash || echo "  ! Failed to install lazydocker, skipping..."
+    echo "  - Attempting to install lazydocker (via gh-proxy mirror)..."
+    # Added timeout and fallback mirror (gh-proxy.com is usually reliable)
+    curl --connect-timeout 10 --max-time 60 -fsSL https://gh-proxy.com/https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | bash || echo "  ! Failed to install lazydocker, skipping..."
 fi
 
 # 8. Fail2Ban
