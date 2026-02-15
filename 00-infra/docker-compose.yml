@@ -6,10 +6,10 @@ services:
     restart: unless-stopped
     command: daemon
     volumes:
-      - ${DOCKER_ROOT}/global/certs:/acme.sh
+      - ${DOCKER_ROOT:-/nfs/docker}/global/certs:/acme.sh
     environment:
-      - CF_Token=${CF_DNS_API_TOKEN}
-      - CF_Account_ID=${CLOUDFLARE_ACCOUNT_ID}
+      - CF_Token=${CF_DNS_API_TOKEN:-dummy_token}
+      - CF_Account_ID=${CLOUDFLARE_ACCOUNT_ID:-dummy_id}
     network_mode: host
 
   # 2. Ingress Tunnel (Public Access)
@@ -17,7 +17,7 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
     restart: unless-stopped
-    command: tunnel run --token ${CF_TOKEN}
+    command: tunnel run --token ${CF_TOKEN:-dummy_token}
     networks:
       - vps-net
 

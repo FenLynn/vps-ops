@@ -5,15 +5,15 @@ services:
     container_name: derper
     restart: unless-stopped
     ports:
-      - "${DERP_PORT}:${DERP_PORT}"
-      - "${DERP_STUN_PORT}:${DERP_STUN_PORT}/udp"
+      - "${DERP_PORT:-33445}:${DERP_PORT:-33445}"
+      - "${DERP_STUN_PORT:-3478}:${DERP_STUN_PORT:-3478}/udp"
     environment:
-      - DERP_DOMAIN=${DERP_DOMAIN}
-      - DERP_ADDR=:${DERP_PORT}
+      - DERP_DOMAIN=${DERP_DOMAIN:-localhost}
+      - DERP_ADDR=:${DERP_PORT:-33445}
       - DERP_CERT_MODE=manual
     volumes:
       # Mount certs from Layer 0 acme.sh
-      - ${DOCKER_ROOT}/global/certs/${DERP_DOMAIN}:/app/certs
+      - ${DOCKER_ROOT:-/nfs/docker}/global/certs/${DERP_DOMAIN:-localhost}:/app/certs
     networks:
       - vps-net
 
@@ -23,7 +23,7 @@ services:
     container_name: new-api
     restart: unless-stopped
     volumes:
-      - ${DOCKER_ROOT}/stable/new-api:/data
+      - ${DOCKER_ROOT:-/nfs/docker}/stable/new-api:/data
     environment:
       - SQL_DSN=/data/new_api.db
       - NODE_TYPE=master
@@ -41,7 +41,7 @@ services:
     container_name: uptime-kuma
     restart: unless-stopped
     volumes:
-      - ${DOCKER_ROOT}/stable/uptime-kuma:/app/data
+      - ${DOCKER_ROOT:-/nfs/docker}/stable/uptime-kuma:/app/data
     networks:
       - vps-net
     # No ports exposed, access via Cloudflare Tunnel
@@ -56,8 +56,8 @@ services:
       - BACKUP_FILENAME=backup-%Y-%m-%dT%H-%M-%S.tar.gz
       - BACKUP_RETENTION_DAYS=7
     volumes:
-      - ${DOCKER_ROOT}:/backup/source:ro
-      - ${DOCKER_ROOT}/backups:/archive
+      - ${DOCKER_ROOT:-/nfs/docker}:/backup/source:ro
+      - ${DOCKER_ROOT:-/nfs/docker}/backups:/archive
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
 networks:

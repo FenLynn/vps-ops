@@ -18,10 +18,14 @@ jobs:
 
       - name: Validate Docker Compose
         run: |
-          # Create a dummy .env for validation
-          cat config.ini .env.example > .env
-          # Ensure DOCKER_NET exists for validation (or use --env to mock it)
-          export DOCKER_NET=vps-net
+          # Use default values or dummy variables for validation
+          # The compose files now have ${VAR:-default} syntax, 
+          # but we can also set them here to be sure.
+          export DOCKER_ROOT=/tmp/vps-ops-test
+          export DERP_DOMAIN=test.domain.com
+          export CF_TOKEN=dummy
+          export PUSHPLUS_TOKEN=dummy
+          
           # Check syntax for all compose files
           docker compose -f 00-infra/docker-compose.yml config --quiet
           docker compose -f 01-stable/docker-compose.yml config --quiet
