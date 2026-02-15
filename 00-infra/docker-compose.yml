@@ -1,7 +1,7 @@
 services:
   # 1. Certificate Manager (Wildcard)
   acme:
-    image: docker.xuanyuan.me/neilpang/acme.sh:daemon
+    image: neilpang/acme.sh:daemon
     container_name: acme.sh
     restart: unless-stopped
     command: daemon
@@ -14,7 +14,7 @@ services:
 
   # 2. Ingress Tunnel (Public Access)
   cloudflared:
-    image: docker.xuanyuan.me/cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:latest
     container_name: cloudflared
     restart: unless-stopped
     command: tunnel run --token ${CF_TOKEN:-dummy_token}
@@ -23,7 +23,7 @@ services:
 
   # 3. Auto-Updater
   watchtower:
-    image: docker.xuanyuan.me/containrrr/watchtower:latest
+    image: containrrr/watchtower:latest
     container_name: watchtower
     restart: unless-stopped
     environment:
