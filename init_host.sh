@@ -155,9 +155,11 @@ if ! sysctl net.ipv4.tcp_congestion_control | grep -q "bbr"; then
     sysctl -p
 fi
 
-# Lazydocker
+# Lazydocker (Optional, uses mirror for China)
 if ! command -v lazydocker &> /dev/null; then
-    curl https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | bash || true
+    echo "  - Attempting to install lazydocker (via ghproxy mirror)..."
+    # Added timeout to prevent hanging script
+    curl --connect-timeout 10 --max-time 60 -fsSL https://mirror.ghproxy.com/https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | bash || echo "  ! Failed to install lazydocker, skipping..."
 fi
 
 # 8. Fail2Ban
