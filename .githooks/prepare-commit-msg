@@ -1,0 +1,42 @@
+#!/bin/sh
+# Ported from sci-research - Auto-generates commit messages based on staged files
+""":"
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 "$0" "$@"
+else
+  exec python "$0" "$@"
+fi
+"""
+import os, subprocess, sys
+
+COMMIT_MSG_FILE = sys.argv[1]
+SOURCE = sys.argv[2] if len(sys.argv) > 2 else None
+
+def generate_commit_msg():
+    try:
+        result = subprocess.run(["git", "diff", "--name-only", "--cached"], capture_output=True, text=True)
+        files = [f.strip() for f in result.stdout.split("\n") if f.strip()]
+        if not files: return None
+        
+        # Analyze folders
+        dirs = set()
+        for f in files:
+            parts = f.split("/")
+            if len(parts) > 1: dirs.add(parts[0])
+            
+        if any("docker-compose" in f for f in files):
+            return f"Deploy: Update services in {', '.join(sorted(dirs)) if dirs else 'root'}"
+        elif any(f.endswith(".sh") for f in files):
+            return "Feat: Refine host initialization scripts"
+        elif any(f.endswith(".md") for f in files):
+            return "Docs: Update documentation"
+        else:
+            return "Chore: Update infrastructure configuration"
+    except:
+        return None
+
+if SOURCE is None or (SOURCE == "message" and open(COMMIT_MSG_FILE).read().strip() == "."):
+    new_msg = generate_commit_msg()
+    if new_msg:
+        with open(COMMIT_MSG_FILE, "w") as f:
+            f.write(f"{new_msg}\n")

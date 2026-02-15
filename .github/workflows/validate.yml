@@ -1,0 +1,23 @@
+name: Infrastructure Validation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint Shell Scripts
+        run: |
+          find . -name "*.sh" -exec bash -n {} +
+
+      - name: Validate Docker Compose
+        run: |
+          # Check syntax for all compose files
+          docker compose -f 00-infra/docker-compose.yml config --quiet
+          docker compose -f 01-stable/docker-compose.yml config --quiet

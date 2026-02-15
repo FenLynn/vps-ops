@@ -1,0 +1,20 @@
+#!/bin/sh
+# Pre-commit hook for vps-ops
+# Prevents committing .env files and checks shell script syntax
+
+echo "[Git Hook] Running Pre-Commit checks..."
+
+# 1. Prevent .env commitment
+if git diff --cached --name-only | grep -E "^.env$|\.env$" > /dev/null; then
+    echo "❌ ERROR: Attempting to commit an .env file! Secrets must stay local."
+    exit 1
+fi
+
+# 2. Check Shell Script Syntax
+for file in $(git diff --cached --name-only | grep "\.sh$"); do
+    if [ -f "$file" ]; then
+        bash -n "$file" || { echo "❌ ERROR: Shell syntax error in $file"; exit 1; }
+    fi
+done
+
+echo "✅ Pre-Commit checks passed."
