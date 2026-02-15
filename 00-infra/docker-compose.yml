@@ -23,7 +23,7 @@ services:
 
   # 3. Auto-Updater
   watchtower:
-    image: containrrr/watchtower
+    image: ghcr.io/containrrr/watchtower:latest
     container_name: watchtower
     restart: unless-stopped
     environment:
