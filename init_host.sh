@@ -68,10 +68,10 @@ mkdir -p /etc/docker
 cat > /etc/docker/daemon.json <<EOF
 {
   "registry-mirrors": [
+    "https://docker.rainbond.cc",
+    "https://docker.anyhub.us.kg",
     "https://dockerproxy.cn",
-    "https://docker.xuanyuan.me",
-    "https://docker.1ms.run",
-    "https://docker.rainbond.cc"
+    "https://docker.xuanyuan.me"
   ],
   "log-driver": "json-file",
   "log-opts": { "max-size": "10m", "max-file": "3" }
