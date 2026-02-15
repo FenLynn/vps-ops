@@ -109,8 +109,8 @@ chmod 600 /home/${ADMIN_USER}/.ssh/authorized_keys
 
 # 5. SSH Hardening
 echo "[5/8] Hardening SSH..."
-sed -i "s/#Port 22/Port ${SSH_PORT}/g" /etc/ssh/sshd_config
-sed -i "s/^Port 22/Port ${SSH_PORT}/g" /etc/ssh/sshd_config
+# Safer idempotent port replacement: replaces any #Port or Port followed by numbers
+sed -i -E "s/^#?Port [0-9]+/Port ${SSH_PORT}/" /etc/ssh/sshd_config
 sed -i 's/^PermitRootLogin yes/PermitRootLogin no/g' /etc/ssh/sshd_config
 sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/g' /etc/ssh/sshd_config
 sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
