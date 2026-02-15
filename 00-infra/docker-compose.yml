@@ -1,7 +1,7 @@
 services:
   # 1. Certificate Manager (Wildcard)
   acme:
-    image: neilpang/acme.sh:daemon
+    image: ghcr.io/neilpang/acme.sh:daemon
     container_name: acme.sh
     restart: unless-stopped
     command: daemon
@@ -14,7 +14,7 @@ services:
 
   # 2. Ingress Tunnel (Public Access)
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: ghcr.io/cloudflare/cloudflared:latest
     container_name: cloudflared
     restart: unless-stopped
     command: tunnel run --token ${CF_TOKEN:-dummy_token}
