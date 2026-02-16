@@ -27,7 +27,10 @@ services:
     volumes:
       - ${DOCKER_ROOT:-/nfs/docker}/stable/new-api:/data
     environment:
-      - SQL_DSN=/data/new_api.db
+      - SQL_DSN=foo:bar@tcp(localhost:3306)/oneapi # Dummy if DB_TYPE is set? No.
+      # For SQLite, the easiest way is to NOT set SQL_DSN or set it to a valid path and Ensure DB_TYPE is sqlite
+      - DB_TYPE=sqlite
+      - SQL_DSN=
       - NODE_TYPE=master
       - CHANNEL_UPDATE_FREQUENCY=30
       - BATCH_UPDATE_ENABLED=true
