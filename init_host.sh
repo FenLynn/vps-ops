@@ -68,10 +68,10 @@ mkdir -p /etc/docker
 cat > /etc/docker/daemon.json <<EOF
 {
   "registry-mirrors": [
-    "https://docker.nju.edu.cn",
-    "https://dockerproxy.cn",
     "https://docker.xuanyuan.me",
-    "https://docker.1ms.run"
+    "https://docker.1ms.run",
+    "https://dockerproxy.cn",
+    "https://docker.nju.edu.cn"
   ],
   "log-driver": "json-file",
   "log-opts": { "max-size": "10m", "max-file": "3" }
