@@ -18,13 +18,11 @@ jobs:
 
       - name: Validate Docker Compose
         run: |
-          # Use default values or dummy variables for validation
-          # The compose files now have ${VAR:-default} syntax, 
-          # but we can also set them here to be sure.
-          export DOCKER_ROOT=/tmp/vps-ops-test
-          export DERP_DOMAIN=test.domain.com
-          export CF_TOKEN=dummy
-          export PUSHPLUS_TOKEN=dummy
+          # Create temporary .env file for validation
+          cp .env.example .env
+          sed -i 's/your_cloudflare_tunnel_token/dummy_token/g' .env
+          sed -i 's/your_cloudflare_dns_token/dummy_token/g' .env
+          sed -i 's/derp.yourdomain.com/test.domain.com/g' .env
           
           # Check syntax for all compose files
           docker compose -f 00-infra/docker-compose.yml config --quiet
