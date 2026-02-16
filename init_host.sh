@@ -300,10 +300,19 @@ echo "🚀 Starting Services Layer 0 (Infrastructure)..."
 cd 00-infra && docker compose up -d
 
 echo "⏳ Waiting for acme-init to finish (Certificate generation)..."
+# Wait for container to exit
 until [ "$(docker inspect -f '{{.State.Running}}' acme-init 2>/dev/null)" == "false" ]; do
     sleep 2
 done
-echo "✅ acme-init finished."
+
+# VERIFY if certificate actually exists
+CERT_DOMAIN=$(grep DERP_DOMAIN .env | cut -d '=' -f2)
+if [ ! -f "${DOCKER_ROOT}/global/certs/${CERT_DOMAIN}/${CERT_DOMAIN}.crt" ]; then
+    echo "❌ CRITICAL: acme-init finished, but certificate not found using domain: ${CERT_DOMAIN}"
+    echo "   Please check 'docker logs acme-init' for details."
+    exit 1
+fi
+echo "✅ acme-init finished and certificate verified."
 
 echo "🚀 Starting Services Layer 1 (Business)..."
 cd ../01-stable && docker compose up -d
