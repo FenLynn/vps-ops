@@ -60,8 +60,24 @@ esac
 # 3. Configure Docker (Mainland Mirrors)
 echo "[3/8] Configuring Docker..."
 if ! command -v docker &> /dev/null; then
-    echo "Installing Docker via get.docker.com..."
-    curl -fsSL https://get.docker.com | bash -s docker
+    echo "Installing Docker..."
+    # Try multiple sources for the installation script to handle networking hurdles
+    INSTALL_SUCCESS=false
+    for SCR_URL in "https://get.docker.com" "https://test.docker.com" "https://mirror.azure.cn/docker-ce/linux/debian/gpg"; do
+        echo "Trying to fetch installation script from ${SCR_URL}..."
+        if [ "$SCR_URL" = "https://get.docker.com" ]; then
+            curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh --mirror Aliyun && INSTALL_SUCCESS=true && break
+        else
+            # Backup: Use Aliyun's specific installation method if get.docker.com is blocked
+            curl -fsSL http://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo -o /etc/yum.repos.d/docker-ce.repo || true
+            yum install -y docker-ce docker-ce-cli containerd.io || apt-get install -y docker-ce docker-ce-cli containerd.io && INSTALL_SUCCESS=true && break
+        fi
+    done
+
+    if [ "$INSTALL_SUCCESS" = false ]; then
+        echo "❌ Docker installation failed from all sources. Please install manually."
+        exit 1
+    fi
 fi
 
 mkdir -p /etc/docker
