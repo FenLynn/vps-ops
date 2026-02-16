@@ -127,7 +127,10 @@ fi
 mkdir -p /var/run/sshd
 
 # 6. Network & Firewall
-echo "[6/8] Configuring Firewall ($FW_TOOL)..."
+echo "[6/8] Configuring Firewall ($FW_TOOL) & Docker Network..."
+# Ensure default network exists
+docker network create ${DOCKER_NET:-vps-net} 2>/dev/null || true
+
 if [ "$FW_TOOL" = "ufw" ]; then
     ufw default deny incoming
     ufw default allow outgoing
@@ -218,11 +221,12 @@ fi
 
 echo "=== Initialization Complete ==="
 echo "Detected OS: $OS"
-echo "SSH Port has been set to: ${SSH_PORT}"
-echo "Firewall ($FW_TOOL) has been configured."
+echo "SSH Port: ${SSH_PORT}"
 echo "----------------------------------------------------------"
-echo "Next Steps:"
-echo "1. Verify SSH config: sshd -t"
-echo "2. Restart SSH: systemctl restart sshd"
-echo "3. Enable Firewall: ($FW_TOOL enable/start)"
-echo "4. LOGIN VIA NEW PORT ${SSH_PORT} AS USER ${ADMIN_USER} BEFORE CLOSING THIS SESSION!"
+echo "🚀 Next Steps (The '1-2' Sequence):"
+echo "1. Verify SSH: sudo sshd -t && sudo systemctl restart sshd"
+echo "2. Identity: (If using GHCR) docker login ghcr.io -u YOUR_NAME"
+echo "3. Infrastructure: cd 00-infra && docker compose up -d"
+echo "4. Stable Services: cd 01-stable && docker compose up -d"
+echo ""
+echo "⚠️ IMPORTANT: LOGIN VIA PORT ${SSH_PORT} BEFORE CLOSING THIS SESSION!"

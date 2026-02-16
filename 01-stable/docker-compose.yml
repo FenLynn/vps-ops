@@ -31,6 +31,11 @@ services:
       - BATCH_UPDATE_ENABLED=true
       - GLOBAL_API_RATE_LIMIT=180
       - GLOBAL_WEB_RATE_LIMIT=60
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
       - vps-net
     # No ports exposed, access via Cloudflare Tunnel
@@ -42,6 +47,11 @@ services:
     restart: unless-stopped
     volumes:
       - ${DOCKER_ROOT:-/nfs/docker}/stable/uptime-kuma:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3001 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
       - vps-net
     # No ports exposed, access via Cloudflare Tunnel
