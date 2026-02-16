@@ -60,8 +60,10 @@ services:
         /entry.sh --issue --server letsencrypt -d \${DERP_DOMAIN} --dns dns_cf --keylength ec-256
         /entry.sh --install-cert -d \${DERP_DOMAIN} --ecc --cert-file /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.crt --key-file /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.key
       else
-        echo '✅ Valid certificate for \${DERP_DOMAIN} exists. Skipping.'
+        echo "✅ Valid certificate for \${DERP_DOMAIN} exists."
       fi
+      chmod 644 /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.crt 2>/dev/null || true
+      chmod 644 /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.key 2>/dev/null || true
       "
 
 networks:

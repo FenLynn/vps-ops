@@ -297,6 +297,12 @@ echo "----------------------------------------------------------"
 echo "🚀 Starting Services Layer 0 (Infrastructure)..."
 cd 00-infra && docker compose up -d
 
+echo "⏳ Waiting for acme-init to finish (Certificate generation)..."
+until [ "$(docker inspect -f '{{.State.Running}}' acme-init 2>/dev/null)" == "false" ]; do
+    sleep 2
+done
+echo "✅ acme-init finished."
+
 echo "🚀 Starting Services Layer 1 (Business)..."
 cd ../01-stable && docker compose up -d
 
