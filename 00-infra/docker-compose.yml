@@ -55,7 +55,7 @@ services:
       sleep 10;
       if [ ! -f /acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.crt ]; then
         echo '🚀 First run detected. Issuing certificate for ${DERP_DOMAIN}...';
-        /entry.sh --issue -d ${DERP_DOMAIN} --dns dns_cf --keylength ec-256 && \
+        /entry.sh --issue --server letsencrypt -d ${DERP_DOMAIN} --dns dns_cf --keylength ec-256 && \
         /entry.sh --install-cert -d ${DERP_DOMAIN} \
         --cert-file /acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.crt \
         --key-file /acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.key;
