@@ -16,7 +16,7 @@ services:
   # 2. Ingress Tunnel (Public Access)
   cloudflared:
     env_file: ../.env
-    image: cloudflare/cloudflared:latest
+    image: hub.rat.dev/cloudflare/cloudflared:latest
     container_name: cloudflared
     restart: unless-stopped
     command: tunnel run --token ${CF_TOKEN:-dummy_token}

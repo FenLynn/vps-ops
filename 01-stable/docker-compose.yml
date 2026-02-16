@@ -2,7 +2,7 @@ services:
   # 1. Derp Server (High Availability Connector)
   derper:
     env_file: ../.env
-    image: fredliang/derper:latest
+    image: hub.rat.dev/fredliang/derper:latest
     container_name: derper
     restart: unless-stopped
     ports:
@@ -21,7 +21,7 @@ services:
   # 2. AI Gateway (New API)
   new-api:
     env_file: ../.env
-    image: calciumion/new-api:latest
+    image: hub.rat.dev/calciumion/new-api:latest
     container_name: new-api
     restart: unless-stopped
     volumes:
@@ -48,7 +48,7 @@ services:
   # 3. Uptime Kuma (Monitoring)
   uptime-kuma:
     env_file: ../.env
-    image: louislam/uptime-kuma:1
+    image: hub.rat.dev/louislam/uptime-kuma:1
     container_name: uptime-kuma
     restart: unless-stopped
     volumes:
@@ -65,7 +65,7 @@ services:
   # 4. Backup Service
   backup:
     env_file: ../.env
-    image: offen/docker-volume-backup:latest
+    image: hub.rat.dev/offen/docker-volume-backup:latest
     container_name: backup
     restart: unless-stopped
     environment:
