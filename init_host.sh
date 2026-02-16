@@ -116,6 +116,13 @@ sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/g' /etc/ssh/sshd_config
 sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
 sed -i 's/^PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
 
+# SELinux Handling (for CentOS/RHEL)
+if command -v getenforce &> /dev/null && [ "$(getenforce)" != "Disabled" ]; then
+    echo "  - SELinux detected. Adding port ${SSH_PORT} to SSH..."
+    yum install -y policycoreutils-python-utils &> /dev/null || apt-get install -y policycoreutils-python-utils &> /dev/null
+    semanage port -a -t ssh_port_t -p tcp ${SSH_PORT} 2>/dev/null || semanage port -m -t ssh_port_t -p tcp ${SSH_PORT}
+fi
+
 # Ensure service directory exists
 mkdir -p /var/run/sshd
 
