@@ -259,8 +259,10 @@ if [ -n "$DOTENV_PATH" ]; then
     ln -sf "$(realpath $DOTENV_PATH)" 00-infra/.env
     ln -sf "$(realpath $DOTENV_PATH)" 01-stable/.env
 else
-    echo "  ⚠️  WARNING: .env file NOT FOUND in $(pwd) or parent!"
-    echo "  Please create .env from .env.example before running sub-services."
+    echo "  ❌ ERROR: .env file NOT FOUND in $(pwd) or parent!"
+    echo "  You MUST create .env from .env.example and configure it before running."
+    echo "  Command: cp .env.example .env && nano .env"
+    exit 1
 fi
 
 # Automated Docker Login (if GH_TOKEN is present)
