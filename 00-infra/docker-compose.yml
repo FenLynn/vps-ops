@@ -32,6 +32,7 @@ services:
     environment:
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_SCHEDULE=0 0 4 * * *  # 4 AM Daily
+      - DOCKER_API_VERSION=1.44
       # Notifications via PushPlus (Shoutrrr format)
       - WATCHTOWER_NOTIFICATION_URL=${WATCHTOWER_NOTIFICATION_URL:-}
     volumes:
