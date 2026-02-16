@@ -53,12 +53,13 @@ services:
     command: |
       /bin/sh -c "
       sleep 10;
-      if [ ! -f /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.crt ]; then
-        echo '🚀 First run detected. Issuing certificate for \${DERP_DOMAIN}...'
+      if [ ! -s /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.crt ] || ! grep -q 'BEGIN CERTIFICATE' /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.crt; then
+        echo '🚀 Issuing/Repairing certificate for \${DERP_DOMAIN}...'
+        rm -rf /acme.sh/\${DERP_DOMAIN}/*
         /entry.sh --issue --server letsencrypt -d \${DERP_DOMAIN} --dns dns_cf --keylength ec-256
         /entry.sh --install-cert -d \${DERP_DOMAIN} --ecc --cert-file /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.crt --key-file /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.key
       else
-        echo '✅ Certificate for \${DERP_DOMAIN} exists. Skipping initial issuance.'
+        echo '✅ Valid certificate for \${DERP_DOMAIN} exists. Skipping.'
       fi
       "
 
