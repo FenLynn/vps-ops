@@ -65,9 +65,15 @@ services:
         # FALLBACK: Force copy from _ecc folder if standard install was quirky
         if [ ! -s /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.crt ]; then
             echo '⚠️ Standard install missed, forcing copy from ECC folder...';
+            # Try to copy .cer or .crt from _ecc folder and rename to .crt
             cp -f /acme.sh/\${DERP_DOMAIN}_ecc/\${DERP_DOMAIN}.cer /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.crt 2>/dev/null || true;
+            cp -f /acme.sh/\${DERP_DOMAIN}_ecc/\${DERP_DOMAIN}.crt /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.crt 2>/dev/null || true;
+            # Also copy key
             cp -f /acme.sh/\${DERP_DOMAIN}_ecc/\${DERP_DOMAIN}.key /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.key 2>/dev/null || true;
         fi
+        # DEBUG: List final files
+        echo "📂 Final certificate directory content:"
+        ls -la /acme.sh/\$DERP_DOMAIN/
       else
         echo '✅ Valid certificate for \$DERP_DOMAIN exists.';
       fi;
