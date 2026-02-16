@@ -1,7 +1,7 @@
 services:
   # 1. Certificate Manager (Wildcard)
   acme:
-    image: neilpang/acme.sh:daemon
+    image: ${ACME_IMAGE:-neilpang/acme.sh:latest}
     container_name: acme.sh
     restart: unless-stopped
     command: daemon

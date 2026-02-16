@@ -70,8 +70,8 @@ cat > /etc/docker/daemon.json <<EOF
   "registry-mirrors": [
     "https://docker.nju.edu.cn",
     "https://dockerproxy.cn",
-    "https://hub.rat.dev",
-    "https://docker.m.daocloud.io"
+    "https://docker.xuanyuan.me",
+    "https://docker.1ms.run"
   ],
   "log-driver": "json-file",
   "log-opts": { "max-size": "10m", "max-file": "3" }

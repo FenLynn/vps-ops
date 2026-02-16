@@ -19,6 +19,6 @@ jobs:
 
       - name: Sync acme.sh to GHCR
         run: |
-          docker pull neilpang/acme.sh:daemon
-          docker tag neilpang/acme.sh:daemon ghcr.io/${{ github.repository_owner }}/acme-sh:daemon
-          docker push ghcr.io/${{ github.repository_owner }}/acme-sh:daemon
+          docker pull neilpang/acme.sh:latest
+          docker tag neilpang/acme.sh:latest ghcr.io/${{ github.repository_owner }}/acme-sh:latest
+          docker push ghcr.io/${{ github.repository_owner }}/acme-sh:latest
