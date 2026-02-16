@@ -1,7 +1,8 @@
 services:
   # 1. Derp Server (High Availability Connector)
   derper:
-    image: fredliang/derper:latest # Using a known working image or build your own
+    env_file: ../.env
+    image: fredliang/derper:latest
     container_name: derper
     restart: unless-stopped
     ports:
@@ -19,6 +20,7 @@ services:
 
   # 2. AI Gateway (New API)
   new-api:
+    env_file: ../.env
     image: calciumion/new-api:latest
     container_name: new-api
     restart: unless-stopped
