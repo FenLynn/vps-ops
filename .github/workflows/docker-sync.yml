@@ -19,6 +19,7 @@ jobs:
 
       - name: Sync acme.sh to GHCR
         run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           docker pull neilpang/acme.sh:latest
-          docker tag neilpang/acme.sh:latest ghcr.io/${{ github.repository_owner }}/acme-sh:latest
-          docker push ghcr.io/${{ github.repository_owner }}/acme-sh:latest
+          docker tag neilpang/acme.sh:latest ghcr.io/${OWNER}/acme-sh:latest
+          docker push ghcr.io/${OWNER}/acme-sh:latest
