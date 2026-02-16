@@ -57,6 +57,11 @@ case "$OS" in
         ;;
 esac
 
+# --- Optional Git Proxy (Manual Enable) ---
+# echo "Setting Git Proxy..."
+# git config --global http.proxy socks5://192.168.12.21:50170
+# git config --global https.proxy socks5://192.168.12.21:50170
+
 # 3. Configure Docker (Mainland Mirrors)
 echo "[3/8] Configuring Docker..."
 if ! command -v docker &> /dev/null; then
@@ -207,6 +212,8 @@ echo "[8/9] Creating Directories at ${DOCKER_ROOT}..."
 mkdir -p ${DOCKER_ROOT}/global/certs
 mkdir -p ${DOCKER_ROOT}/stable/new-api
 mkdir -p ${DOCKER_ROOT}/stable/uptime-kuma
+mkdir -p ${DOCKER_ROOT}/stable/backups
+mkdir -p ${DOCKER_ROOT}/infra/acme
 chown -R ${ADMIN_USER}:${ADMIN_USER} ${DOCKER_ROOT}
 
 # 9. Apply User Presets (Shell & Vim)
@@ -286,6 +293,13 @@ echo ""
 echo "⚠️  CRITICAL: OPEN PORT ${SSH_PORT} IN YOUR VPS CLOUD CONSOLE FIREWALL!"
 echo "----------------------------------------------------------"
 
-# Optional: Uncomment these to enable true "One-Key" start
-# cd 00-infra && docker compose up -d
-# cd 01-stable && docker compose up -d
+# FINAL DEPLOYMENT (One-Key Start)
+echo "🚀 Starting Services Layer 0 (Infrastructure)..."
+cd 00-infra && docker compose up -d
+
+echo "🚀 Starting Services Layer 1 (Business)..."
+cd ../01-stable && docker compose up -d
+
+echo "----------------------------------------------------------"
+echo "✅ Deployment Successful! Check status with 'docker ps'"
+echo "----------------------------------------------------------"
