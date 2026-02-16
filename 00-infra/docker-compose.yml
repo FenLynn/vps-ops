@@ -50,17 +50,17 @@ services:
       - CF_Token=${CF_DNS_API_TOKEN:-dummy_token}
       - DERP_DOMAIN=${DERP_DOMAIN:-localhost}
     network_mode: host
-    command: >
+    command: |
       /bin/sh -c "
       sleep 10;
-      if [ ! -f /acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.crt ]; then
-        echo '🚀 First run detected. Issuing certificate for ${DERP_DOMAIN}...';
-        /entry.sh --issue --server letsencrypt -d ${DERP_DOMAIN} --dns dns_cf --keylength ec-256 && \
-        /entry.sh --install-cert -d ${DERP_DOMAIN} \
-        --cert-file /acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.crt \
-        --key-file /acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.key;
+      if [ ! -f /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.crt ]; then
+        echo '🚀 First run detected. Issuing certificate for \${DERP_DOMAIN}...'
+        /entry.sh --issue --server letsencrypt -d \${DERP_DOMAIN} --dns dns_cf --keylength ec-256 && \\
+        /entry.sh --install-cert -d \${DERP_DOMAIN} \\
+        --cert-file /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.crt \\
+        --key-file /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.key
       else
-        echo '✅ Certificate for ${DERP_DOMAIN} exists. Skipping initial issuance.';
+        echo '✅ Certificate for \${DERP_DOMAIN} exists. Skipping initial issuance.'
       fi
       "
 
