@@ -42,6 +42,7 @@ services:
 
   # 3. Uptime Kuma (Monitoring)
   uptime-kuma:
+    env_file: ../.env
     image: louislam/uptime-kuma:1
     container_name: uptime-kuma
     restart: unless-stopped
@@ -58,6 +59,7 @@ services:
 
   # 4. Backup Service
   backup:
+    env_file: ../.env
     image: offen/docker-volume-backup:latest
     container_name: backup
     restart: unless-stopped

@@ -1,6 +1,7 @@
 services:
   # 1. Certificate Manager (Wildcard)
   acme:
+    env_file: ../.env
     image: ${ACME_IMAGE:-neilpang/acme.sh:latest}
     container_name: acme.sh
     restart: unless-stopped
@@ -14,6 +15,7 @@ services:
 
   # 2. Ingress Tunnel (Public Access)
   cloudflared:
+    env_file: ../.env
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
     restart: unless-stopped
@@ -46,18 +48,17 @@ services:
       - CF_Token=${CF_DNS_API_TOKEN:-dummy_token}
       - DERP_DOMAIN=${DERP_DOMAIN:-localhost}
     network_mode: host
-    entrypoint: /bin/sh -c
     command: >
-      "
+      /bin/sh -c "
       sleep 10;
-      if [ ! -f /acme.sh/$${DERP_DOMAIN}/$${DERP_DOMAIN}.crt ]; then
-        echo '🚀 First run detected. Issuing certificate for $${DERP_DOMAIN}...';
-        /entry.sh --issue -d $${DERP_DOMAIN} --dns dns_cf --keylength ec-256 && \
-        /entry.sh --install-cert -d $${DERP_DOMAIN} \
-        --cert-file /acme.sh/$${DERP_DOMAIN}/$${DERP_DOMAIN}.crt \
-        --key-file /acme.sh/$${DERP_DOMAIN}/$${DERP_DOMAIN}.key;
+      if [ ! -f /acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.crt ]; then
+        echo '🚀 First run detected. Issuing certificate for ${DERP_DOMAIN}...';
+        /entry.sh --issue -d ${DERP_DOMAIN} --dns dns_cf --keylength ec-256 && \
+        /entry.sh --install-cert -d ${DERP_DOMAIN} \
+        --cert-file /acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.crt \
+        --key-file /acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.key;
       else
-        echo '✅ Certificate for $${DERP_DOMAIN} exists. Skipping initial issuance.';
+        echo '✅ Certificate for ${DERP_DOMAIN} exists. Skipping initial issuance.';
       fi
       "
 

@@ -232,13 +232,22 @@ fi
 # 8. Final Automation & Login
 echo "[8/8] Finalizing Automation..."
 
-# Source .env if it exists to get tokens
+# Source secrets from .env
+DOTENV_PATH=""
 if [ -f ".env" ]; then
-    echo "  - Sourcing local .env file..."
-    export $(grep -v '^#' .env | xargs)
+    DOTENV_PATH=".env"
 elif [ -f "../.env" ]; then
-    echo "  - Sourcing parent .env file..."
-    export $(grep -v '^#' ../.env | xargs)
+    DOTENV_PATH="../.env"
+fi
+
+if [ -n "$DOTENV_PATH" ]; then
+    echo "  - Sourcing secrets from $DOTENV_PATH..."
+    set -a
+    source "$DOTENV_PATH"
+    set +a
+else
+    echo "  ⚠️  WARNING: .env file NOT FOUND in $(pwd) or parent!"
+    echo "  Please create .env from .env.example before running sub-services."
 fi
 
 # Automated Docker Login (if GH_TOKEN is present)
@@ -246,7 +255,7 @@ if [ -n "$GH_TOKEN" ]; then
     echo "  - Found GH_TOKEN. Attempting automated login to ghcr.io..."
     echo "$GH_TOKEN" | docker login ghcr.io -u ${ADMIN_USER:-FenLynn} --password-stdin
 else
-    echo "  - No GH_TOKEN found in .env. Skipping automated login."
+    echo "  - GH_TOKEN not found in environment. Skipping login."
 fi
 
 # SSH Restart (Applying changes)
