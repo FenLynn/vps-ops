@@ -229,20 +229,48 @@ if [ -f "presets/bashrc.append" ]; then
     fi
 fi
 
-# Also apply to root for convenience
-cp presets/.vimrc "/root/.vimrc" 2>/dev/null || true
-if ! grep -q "vps-ops Custom Bash Presets" "/root/.bashrc" 2>/dev/null; then
-    cat presets/bashrc.append >> "/root/.bashrc" 2>/dev/null || true
+# 8. Final Automation & Login
+echo "[8/8] Finalizing Automation..."
+
+# Source .env if it exists to get tokens
+if [ -f ".env" ]; then
+    echo "  - Sourcing local .env file..."
+    export $(grep -v '^#' .env | xargs)
+elif [ -f "../.env" ]; then
+    echo "  - Sourcing parent .env file..."
+    export $(grep -v '^#' ../.env | xargs)
+fi
+
+# Automated Docker Login (if GH_TOKEN is present)
+if [ -n "$GH_TOKEN" ]; then
+    echo "  - Found GH_TOKEN. Attempting automated login to ghcr.io..."
+    echo "$GH_TOKEN" | docker login ghcr.io -u ${ADMIN_USER:-FenLynn} --password-stdin
+else
+    echo "  - No GH_TOKEN found in .env. Skipping automated login."
+fi
+
+# SSH Restart (Applying changes)
+echo "  - Restarting SSH service..."
+if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
+    systemctl restart ssh || service ssh restart
+else
+    systemctl restart sshd
 fi
 
 echo "=== Initialization Complete ==="
 echo "Detected OS: $OS"
 echo "SSH Port: ${SSH_PORT}"
 echo "----------------------------------------------------------"
-echo "🚀 Next Steps (The '1-2' Sequence):"
-echo "1. Verify SSH: sudo sshd -t && sudo systemctl restart sshd"
-echo "2. Identity: (If using GHCR) docker login ghcr.io -u YOUR_NAME"
-echo "3. Infrastructure: cd 00-infra && docker compose up -d"
-echo "4. Stable Services: cd 01-stable && docker compose up -d"
+echo "🚀 One-Key Deployment Sequence:"
+echo "1. Verify SSH: You are now using port ${SSH_PORT}."
 echo ""
-echo "⚠️ IMPORTANT: LOGIN VIA PORT ${SSH_PORT} BEFORE CLOSING THIS SESSION!"
+echo "# To start everything, run these (already configured):"
+echo "# cd 00-infra && docker compose up -d"
+echo "# cd 01-stable && docker compose up -d"
+echo ""
+echo "⚠️  CRITICAL: OPEN PORT ${SSH_PORT} IN YOUR VPS CLOUD CONSOLE FIREWALL!"
+echo "----------------------------------------------------------"
+
+# Optional: Uncomment these to enable true "One-Key" start
+# cd 00-infra && docker compose up -d
+# cd 01-stable && docker compose up -d
