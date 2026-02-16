@@ -245,6 +245,12 @@ if [ -n "$DOTENV_PATH" ]; then
     set -a
     source "$DOTENV_PATH"
     set +a
+
+    # SYMLINK .env for Docker Compose interpolation (Fixes "variable not set" warnings)
+    # Compose looks for .env in the CURRENT folder, not parent.
+    echo "  - Linking .env to service subdirectories..."
+    ln -sf "$(realpath $DOTENV_PATH)" 00-infra/.env
+    ln -sf "$(realpath $DOTENV_PATH)" 01-stable/.env
 else
     echo "  ⚠️  WARNING: .env file NOT FOUND in $(pwd) or parent!"
     echo "  Please create .env from .env.example before running sub-services."
