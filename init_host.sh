@@ -4,7 +4,7 @@ set -e
 # Load Configuration
 source config.ini
 
-echo "=== vps-ops Host Initialization (Mainland China Edition) ==="
+echo "=== vps-ops Host Initialization (Standard Linux Edition) ==="
 echo "Target User: ${ADMIN_USER}"
 echo "SSH Port: ${SSH_PORT}"
 echo "Docker Root: ${DOCKER_ROOT}"
@@ -61,7 +61,7 @@ esac
 echo "[3/8] Configuring Docker..."
 if ! command -v docker &> /dev/null; then
     echo "Installing Docker via get.docker.com..."
-    curl -fsSL https://get.docker.com | bash -s docker --mirror Aliyun
+    curl -fsSL https://get.docker.com | bash -s docker
 fi
 
 mkdir -p /etc/docker
