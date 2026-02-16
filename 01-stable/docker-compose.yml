@@ -37,7 +37,7 @@ services:
       - GLOBAL_API_RATE_LIMIT=180
       - GLOBAL_WEB_RATE_LIMIT=60
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/status"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/status || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
