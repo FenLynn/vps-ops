@@ -72,7 +72,7 @@ services:
             cp -f /acme.sh/\${DERP_DOMAIN}_ecc/\${DERP_DOMAIN}.key /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.key 2>/dev/null || true;
         fi
         # DEBUG: List final files
-        echo "📂 Final certificate directory content:"
+        echo '📂 Final certificate directory content:'
         ls -la /acme.sh/\$DERP_DOMAIN/
       else
         echo '✅ Valid certificate for \$DERP_DOMAIN exists.';
