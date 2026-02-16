@@ -54,16 +54,16 @@ services:
     command: |
       /bin/sh -c "
       sleep 10;
-      if [ ! -s /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.crt ] || ! grep -q 'BEGIN CERTIFICATE' /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.crt; then
-        echo '🚀 Issuing/Repairing certificate for \${DERP_DOMAIN}...'
-        rm -rf /acme.sh/\${DERP_DOMAIN}/*
-        /entry.sh --issue --server letsencrypt -d \${DERP_DOMAIN} --dns dns_cf --keylength ec-256
-        /entry.sh --install-cert -d \${DERP_DOMAIN} --ecc --cert-file /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.crt --key-file /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.key
+      if [ ! -s /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.crt ] || ! grep -q 'BEGIN CERTIFICATE' /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.crt; then
+        echo '🚀 Issuing/Repairing certificate for \$DERP_DOMAIN...';
+        rm -rf /acme.sh/\$DERP_DOMAIN/*;
+        /entry.sh --issue --server letsencrypt -d \$DERP_DOMAIN --dns dns_cf --keylength ec-256;
+        /entry.sh --install-cert -d \$DERP_DOMAIN --ecc --cert-file /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.crt --key-file /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.key;
       else
-        echo "✅ Valid certificate for \${DERP_DOMAIN} exists."
-      fi
-      chmod 644 /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.crt 2>/dev/null || true
-      chmod 644 /acme.sh/\${DERP_DOMAIN}/\${DERP_DOMAIN}.key 2>/dev/null || true
+        echo '✅ Valid certificate for \$DERP_DOMAIN exists.';
+      fi;
+      chmod 644 /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.crt 2>/dev/null || true;
+      chmod 644 /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.key 2>/dev/null || true;
       "
 
 networks:
