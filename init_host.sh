@@ -305,10 +305,17 @@ until [ "$(docker inspect -f '{{.State.Running}}' acme-init 2>/dev/null)" == "fa
     sleep 2
 done
 
-# VERIFY if certificate actually exists
+# VERIFY if certificate actually exists AND is valid
 CERT_DOMAIN=$(grep DERP_DOMAIN .env | cut -d '=' -f2)
-if [ ! -f "${DOCKER_ROOT}/global/certs/${CERT_DOMAIN}/${CERT_DOMAIN}.crt" ]; then
-    echo "❌ CRITICAL: acme-init finished, but certificate not found using domain: ${CERT_DOMAIN}"
+CERT_FILE="${DOCKER_ROOT}/global/certs/${CERT_DOMAIN}/${CERT_DOMAIN}.crt"
+if [ ! -f "$CERT_FILE" ]; then
+    echo "❌ CRITICAL: Certificate file not found: $CERT_FILE"
+    echo "   Please check 'docker logs acme-init' for details."
+    exit 1
+fi
+if [ ! -s "$CERT_FILE" ] || ! grep -q "BEGIN CERTIFICATE" "$CERT_FILE"; then
+    echo "❌ CRITICAL: Certificate file is empty or invalid: $CERT_FILE"
+    echo "   This usually means LetsEncrypt rate limit was hit or DNS verification failed."
     echo "   Please check 'docker logs acme-init' for details."
     exit 1
 fi

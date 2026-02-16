@@ -74,6 +74,13 @@ services:
         # DEBUG: List final files
         echo '📂 Final certificate directory content:'
         ls -la /acme.sh/\$DERP_DOMAIN/
+        # FINAL VALIDATION: Ensure cert is not empty
+        if [ ! -s /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.crt ] || ! grep -q 'BEGIN CERTIFICATE' /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.crt; then
+            echo '❌ FATAL: Certificate file is empty or invalid after all attempts.';
+            echo '   This usually means LetsEncrypt rate limit was hit.';
+            echo '   Please wait and retry later, or use a different domain for testing.';
+            exit 1;
+        fi
       else
         echo '✅ Valid certificate for \$DERP_DOMAIN exists.';
       fi;
