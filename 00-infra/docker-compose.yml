@@ -58,7 +58,16 @@ services:
         echo '🚀 Issuing/Repairing certificate for \$DERP_DOMAIN...';
         rm -rf /acme.sh/\$DERP_DOMAIN/*;
         /entry.sh --issue --server letsencrypt -d \$DERP_DOMAIN --dns dns_cf --keylength ec-256;
+        # Ensure target dir exists
+        mkdir -p /acme.sh/\$DERP_DOMAIN;
+        # Install (attempt standard)
         /entry.sh --install-cert -d \$DERP_DOMAIN --ecc --cert-file /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.crt --key-file /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.key;
+        # FALLBACK: Force copy from _ecc folder if standard install was quirky
+        if [ ! -s /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.crt ]; then
+            echo '⚠️ Standard install missed, forcing copy from ECC folder...';
+            cp -f /acme.sh/\${DERP_DOMAIN}_ecc/\${DERP_DOMAIN}.cer /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.crt 2>/dev/null || true;
+            cp -f /acme.sh/\${DERP_DOMAIN}_ecc/\${DERP_DOMAIN}.key /acme.sh/\$DERP_DOMAIN/\$DERP_DOMAIN.key 2>/dev/null || true;
+        fi
       else
         echo '✅ Valid certificate for \$DERP_DOMAIN exists.';
       fi;
