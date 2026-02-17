@@ -1,0 +1,35 @@
+services:
+  # 1. Container Management (Dockge)
+  dockge:
+    env_file: ../.env
+    image: louislam/dockge:1
+    container_name: dockge
+    restart: unless-stopped
+    # No ports exposed: Access via Cloudflare Tunnel only
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/app/data
+      # Mount project root to manage stacks directly
+      - ${DOCKER_ROOT:-/nfs/docker}/vps-ops:/app/stacks
+    environment:
+      - DOCKGE_STACKS_DIR=/app/stacks
+    networks:
+      - vps-net
+
+  # 2. Dashboard (Homarr)
+  homarr:
+    env_file: ../.env
+    image: ghcr.io/ajnart/homarr:latest
+    container_name: homarr
+    restart: unless-stopped
+    # No ports exposed: Access via Cloudflare Tunnel only
+    volumes:
+      - ./homarr/configs:/app/data/configs
+      - ./homarr/icons:/app/public/icons
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - vps-net
+
+networks:
+  vps-net:
+    external: true
