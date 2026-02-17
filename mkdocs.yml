@@ -1,5 +1,4 @@
 site_name: VPS Ops
-docs_dir: .
 
 nav:
-  - 首页: docs/index.md
+  - 首页: index.md
