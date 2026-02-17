@@ -73,6 +73,7 @@ services:
       - BACKUP_FILENAME=backup-%Y-%m-%dT%H-%M-%S.tar.gz
       - BACKUP_RETENTION_DAYS=7
     volumes:
+      # Mount entire DOCKER_ROOT to backup both ./stable (Layer 1) and ./management (Layer 2)
       - ${DOCKER_ROOT:-/nfs/docker}:/backup/source:ro
       - ${DOCKER_ROOT:-/nfs/docker}/backups:/archive
       - /var/run/docker.sock:/var/run/docker.sock:ro

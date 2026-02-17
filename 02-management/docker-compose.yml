@@ -8,7 +8,7 @@ services:
     # No ports exposed: Access via Cloudflare Tunnel only
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./data:/app/data
+      - ${DOCKER_ROOT:-/nfs/docker}/management/dockge/data:/app/data
       # Mount project root to manage stacks directly
       - ${DOCKER_ROOT:-/nfs/docker}/vps-ops:/app/stacks
     environment:
@@ -24,8 +24,8 @@ services:
     restart: unless-stopped
     # No ports exposed: Access via Cloudflare Tunnel only
     volumes:
-      - ./homarr/configs:/app/data/configs
-      - ./homarr/icons:/app/public/icons
+      - ${DOCKER_ROOT:-/nfs/docker}/management/homarr/configs:/app/data/configs
+      - ${DOCKER_ROOT:-/nfs/docker}/management/homarr/icons:/app/public/icons
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - vps-net

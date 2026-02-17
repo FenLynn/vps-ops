@@ -289,6 +289,7 @@ cd ../01-stable && docker compose pull && docker compose up -d
 ### Q5: 如何备份数据？
 **自动备份**：
 - 时间：每日凌晨 3 点
+- 范围：包括基础设施证书、业务数据、管理层配置 (Dockge/Homarr)
 - 位置：`/nfs/docker/backups/`
 - 保留：最近 7 天
 
@@ -296,6 +297,19 @@ cd ../01-stable && docker compose pull && docker compose up -d
 ```bash
 docker exec backup backup
 ```
+
+### Q6: 重装系统后如何恢复数据？
+1. **恢复文件**：
+   将备份包（tar.gz）解压还原到 `/nfs/docker` 目录。
+   ```bash
+   # 示例
+   tar -xzf backup-2026-xx-xx.tar.gz -C /nfs/docker
+   ```
+2. **一键启动**：
+   ```bash
+   sudo bash init_host.sh
+   ```
+   脚本会自动检测到现有的证书和数据，直接启动服务，无需重新申请证书或重新配置。
 
 ---
 
