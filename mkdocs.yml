@@ -12,3 +12,6 @@ exclude_docs: |
   *.yml
   *.yaml
 
+nav:
+  - 首页: README.md
+
