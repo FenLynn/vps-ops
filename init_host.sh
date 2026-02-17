@@ -324,6 +324,9 @@ echo "✅ acme-init finished and certificate verified."
 echo "🚀 Starting Services Layer 1 (Business)..."
 cd ../01-stable && docker compose up -d
 
+echo "🚀 Starting Services Layer 2 (Management)..."
+cd ../02-management && docker compose up -d
+
 echo "----------------------------------------------------------"
 echo "✅ Deployment Successful! Check status with 'docker ps'"
 echo "----------------------------------------------------------"
