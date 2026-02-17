@@ -69,9 +69,9 @@ services:
     container_name: kopia
     restart: unless-stopped
     hostname: vps-backup
-    # Mount Docker Root RO for backup
+    # Mount Docker Root RW for restore capability
     volumes:
-      - ${DOCKER_ROOT:-/nfs/docker}:/source:ro
+      - ${DOCKER_ROOT:-/nfs/docker}:/source
       - kopia-cache:/app/cache
       - kopia-config:/app/config
     environment:
@@ -106,8 +106,8 @@ services:
 
       # AUTO-RESTORE LOGIC: If repository exists BUT local is empty (Fresh Install)
       # We check for a specific marker file or key directory to decide if we should restore
-      # Safety check: Only restore if /source/vps-ops does NOT exist
-      if [ ! -d "/source/vps-ops" ]; then
+      # Safety check: Only restore if /source/stable does NOT exist (indicates empty docker root)
+      if [ ! -d "/source/stable" ]; then
           echo "⚠️ Fresh Install Detected (No local data). Checking for remote snapshots...";
           LATEST_SNAP=\$(kopia snapshot list /source --json | grep -o '"id": "[^"]*"' | head -n 1 | cut -d '"' -f 4)
           if [ ! -z "\$LATEST_SNAP" ]; then
