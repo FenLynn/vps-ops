@@ -4,9 +4,7 @@
 
 **零基础 · 全自动 · 甚至不需要公网 IP**
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Docker](https://img.shields.io/badge/docker-compose-blue)](https://docs.docker.com/compose/)
-[![Cloudflare](https://img.shields.io/badge/cloudflare-zero--trust-orange)](https://www.cloudflare.com/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![Docker](https://img.shields.io/badge/docker-compose-blue)](https://docs.docker.com/compose/) [![Cloudflare](https://img.shields.io/badge/cloudflare-zero--trust-orange)](https://www.cloudflare.com/)
 
 </div>
 
@@ -15,6 +13,7 @@
 ## 📖 这是一个什么项目？
 
 您是否经历过：
+
 *   买了一台新 VPS，要花半天时间安装 Docker、配置防火墙、申请 SSL 证书？
 *   想在服务器上跑个 AI（OneAPI）或者仪表盘（Homarr），却被 Nginx 反向代理搞得头大？
 *   服务器裸奔在公网，每天被扫描几十万次，提心吊胆？
@@ -128,6 +127,7 @@ sudo bash init_host.sh
 ```
 
 **接下来会发生什么？**
+
 1.  **系统初始化**：脚本会优化内核参数，安装 Docker，创建一个叫 `sudor` 的安全用户。
 2.  **网络优化**：自动配置国内镜像源，再也不用担心拉取镜像卡在 0% 了。
 3.  **启动服务**：依次启动 Layer 0, 1, 2 的所有服务。
@@ -163,6 +163,7 @@ sudo bash init_host.sh
 *   **存了什么？** 您的所有配置、数据库、证书。不包含代码（代码在 git 里）。
 *   **安全吗？** 极其安全。数据在离服务器前就被加密了，网盘管理员也看不了。
 *   **怎么恢复？**
+
     *   **自动**：新机器填好 `.env` 运行脚本，自动恢复。
     *   **手动**：
         ```bash
