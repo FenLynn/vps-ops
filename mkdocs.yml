@@ -4,7 +4,6 @@ docs_dir: .  # Use root directory as docs directory
 # Exclude non-documentation files
 exclude_docs: |
   mkdocs.yml
-  README.md
   LICENSE
   .git/
   .github/
@@ -14,4 +13,4 @@ exclude_docs: |
   *.yaml
 
 nav:
-  - 首页: index.md
+  - 首页: README.md
