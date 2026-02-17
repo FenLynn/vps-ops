@@ -2,15 +2,15 @@ site_name: VPS Ops
 docs_dir: .  # Use root directory as docs directory
 
 # Exclude non-documentation files
-exclude_docs: |
-  mkdocs.yml
-  LICENSE
-  .git/
-  .github/
-  *.py
-  *.json
-  *.yml
-  *.yaml
+# exclude_docs: |
+#   mkdocs.yml
+#   LICENSE
+#   .git/
+#   .github/
+#   *.py
+#   *.json
+#   *.yml
+#   *.yaml
 
-nav:
-  - 首页: README.md
+# nav:
+#   - 首页: README.md
