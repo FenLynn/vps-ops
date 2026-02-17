@@ -1,20 +1,4 @@
 site_name: VPS Ops
-docs_dir: .
-
-# Exclude everything except docs/ and README.md
-# effectively simulating a clean docs_dir but keeping README accessible
-exclude_docs: |
-  *.yml
-  *.yaml
-  *.sh
-  *.txt
-  .git*
-  .github/
-  .gitignore
-  LICENSE
-  # Exclude all top-level folders except docs (manual exclude might be needed if globs are weak)
-  # But simple excludes usually work.
-  # If there are other folders like 'src', add them here.
 
 nav:
-  - 首页: docs/index.md
+  - 首页: index.md
