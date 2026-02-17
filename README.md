@@ -289,6 +289,7 @@ cd ../01-stable && docker compose pull && docker compose up -d
 ### Q5: 如何备份数据？
 **自动备份**：
 - **核心**：采用 Kopia 进行增量快照 (Snapshot)，上传至 WebDAV 网盘 (如 TeraCloud)。
+- **范围**：`/nfs/docker` 全量数据 + 项目根目录 `.env` (加密存储)。
 - **频率**：每日凌晨 3 点自动执行。
 - **策略**：保留最近 7 天日备、4 周周备、6 月月备。
 - **安全**：所有数据由 `KOPIA_PASSWORD` 加密，云端无法窥探。
