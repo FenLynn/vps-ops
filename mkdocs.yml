@@ -13,5 +13,5 @@ exclude_docs: |
   *.yaml
 
 nav:
-  - 首页: README.md
+  - 首页: index.md
 
