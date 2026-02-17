@@ -185,10 +185,47 @@ A: 编辑 `config.ini` 文件，然后重新运行脚本即可。
 
 ---
 
+
+---
+
+## 📚 附录：Token 获取手把手教程
+
+### 1. Cloudflare Tunnel Token (内网穿透)
+**这是什么？** 它像一条秘密地道，让全世界能访问您的服务，但又不需要您在防火墙上开洞。
+1.  打开 [Zero Trust Dashboard](https://one.dash.cloudflare.com/)。
+2.  点击左侧 **Networks** -> **Tunnels**。
+3.  点击 **Create a tunnel**。
+4.  随便起个名（比如 `vps-ops`），保存。
+5.  在 "Choose your environment" 选 **Docker**。
+6.  下面会出现一串命令，找到 `--token` 后面的那串乱码，复制它。
+    *   这就是 `CF_TOKEN`。
+
+### 2. Cloudflare DNS API Token (证书申请)
+**这是什么？** 它是给自动化脚本的“授权书”，允许脚本证明“这个域名是我的”，从而申请 SSL 证书。
+1.  打开 [API Tokens 页面](https://dash.cloudflare.com/profile/api-tokens)。
+2.  点击 **Create Token**。
+3.  找到 **Edit zone DNS** 模板，点击 **Use template**。
+4.  **Zone Resources** 选 **Include** -> **Specific zone** -> **您的域名**。
+5.  点击 **Continue to summary** -> **Create Token**。
+6.  复制那个只显示一次的 Token。
+    *   这就是 `CF_DNS_API_TOKEN`。
+
+### 3. Kopia Repository Password (备份密码)
+**这是什么？** 这是您数据的“保险箱密码”。
+*   **获取方式**：**不需要获取，由您自己想一个！**
+*   **要求**：越长越好，包含大小写、数字、符号。
+*   **注意**：**千万别丢！千万别丢！** 这个密码不存服务器，只存您的脑子里。如有丢失，神仙难救。
+
+### 4. New API Admin Password
+**这是什么？** AI 接口管理面板的超级管理员密码。
+*   **获取方式**：**由您自己设定**。系统启动后，这就是您登录 `api.yourdomain.com` 的密码（账号是 root）。
+
+---
+
 <div align="center">
 
 **Enjoy your new server! 🥂**
 
-如果有问题，欢迎提交 Issue。
+Made with ❤️ by FenLynn
 
 </div>
