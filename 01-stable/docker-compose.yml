@@ -72,6 +72,8 @@ services:
     # Mount Docker Root RW for restore capability
     volumes:
       - ${DOCKER_ROOT:-/nfs/docker}:/source
+      # Backup .env file (Encrypted)
+      - ../.env:/source/.env_backup:ro
       - kopia-cache:/app/cache
       - kopia-config:/app/config
     environment:
