@@ -195,6 +195,14 @@ docker ps
 
 ---
 
+### Layer 2: 管理层 (`02-management`)
+| 服务 | 用途 | 端口 | 访问方式 |
+|------|------|------|----------|
+| **Dockge** | 容器/Stack 管理 | - | Cloudflare Tunnel |
+| **Homarr** | 聚合仪表盘 | - | Cloudflare Tunnel |
+
+---
+
 ## ⚙️ 配置说明
 
 ### 全局配置 (`config.ini`)
@@ -216,8 +224,17 @@ ADMIN_USER=sudor
 DOCKER_NET=vps-net
 ```
 
-### 环境变量 (`.env`)
-详见 [Token 获取指南](#-token-获取指南)
+### 访问管理服务 (Dockge & Homarr)
+由于采用了零端口暴露的安全策略，您无法通过 IP:端口 访问。必须配置 Cloudflare Tunnel：
+
+1. **Dockge 配置**:
+   - Public Hostname: `dockge.yourdomain.com`
+   - Service: `http://dockge:5001`
+   - **强烈建议**: 在 Cloudflare Zero Trust 中开启 Access (邮箱验证)
+
+2. **Homarr 配置**:
+   - Public Hostname: `home.yourdomain.com`
+   - Service: `http://homarr:7575`
 
 ---
 
