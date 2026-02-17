@@ -288,29 +288,35 @@ cd ../01-stable && docker compose pull && docker compose up -d
 
 ### Q5: 如何备份数据？
 **自动备份**：
-- 时间：每日凌晨 3 点
-- 范围：包括基础设施证书、业务数据、管理层配置 (Dockge/Homarr)
-- **自动排除**：日志文件 (`*.log`)、缓存 (`cache/`)、临时文件 (`*.tmp`)
-- 位置：`/nfs/docker/backups/`
-- 保留：最近 7 天
+- **核心**：采用 Kopia 进行增量快照 (Snapshot)，上传至 WebDAV 网盘 (如 TeraCloud)。
+- **频率**：每日凌晨 3 点自动执行。
+- **策略**：保留最近 7 天日备、4 周周备、6 月月备。
+- **安全**：所有数据由 `KOPIA_PASSWORD` 加密，云端无法窥探。
 
-**手动备份**：
+**手动触发**：
 ```bash
-docker exec backup backup
+docker exec -it kopia kopia snapshot create /source
 ```
 
 ### Q6: 重装系统后如何恢复数据？
-1. **恢复文件**：
-   将备份包（tar.gz）解压还原到 `/nfs/docker` 目录。
+**这是最重要的环节！** 只要您有 `.env` 里的密码，数据随时可查。
+
+1. **在新机器启动服务**：
+   确保 `.env` 填入了正确的 `KOPIA_PASSWORD` 和 WebDAV 信息，运行 `init_host.sh`。Kopia 容器启动时会自动连接旧仓库。
+
+2. **列出快照**：
    ```bash
-   # 示例
-   tar -xzf backup-2026-xx-xx.tar.gz -C /nfs/docker
+   docker exec -it kopia kopia snapshot list /source
+   # 输出示例：
+   # 2026-02-17 03:00:00 k7a8b9c0... (latest)
    ```
-2. **一键启动**：
+
+3. **执行恢复**：
    ```bash
-   sudo bash init_host.sh
+   # 恢复最新快照到 /nfs/docker
+   docker exec -it kopia kopia snapshot restore latest /source
    ```
-   脚本会自动检测到现有的证书和数据，直接启动服务，无需重新申请证书或重新配置。
+   *注意：恢复会覆盖当前 `/nfs/docker` 下的文件，请谨慎操作。*
 
 ---
 

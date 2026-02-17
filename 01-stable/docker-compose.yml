@@ -62,23 +62,74 @@ services:
       - vps-net
     # No ports exposed, access via Cloudflare Tunnel
 
-  # 4. Backup Service
-  backup:
+  # 4. Kopia Backup (Incremental to WebDAV)
+  kopia:
     env_file: ../.env
-    image: hub.rat.dev/offen/docker-volume-backup:latest
-    container_name: backup
+    image: kopia/kopia:latest
+    container_name: kopia
     restart: unless-stopped
-    environment:
-      - BACKUP_CRON_EXPRESSION=0 3 * * * # 3 AM Daily
-      - BACKUP_FILENAME=backup-%Y-%m-%dT%H-%M-%S.tar.gz
-      - BACKUP_RETENTION_DAYS=7
-      # Optimize backup: Exclude logs and temp files
-      - BACKUP_ARGUMENTS=--exclude='*.log' --exclude='*.tmp' --exclude='*/logs/*' --exclude='*/cache/*'
+    hostname: vps-backup
+    # Mount Docker Root RO for backup
     volumes:
-      # Mount entire DOCKER_ROOT to backup both ./stable (Layer 1) and ./management (Layer 2)
-      - ${DOCKER_ROOT:-/nfs/docker}:/backup/source:ro
-      - ${DOCKER_ROOT:-/nfs/docker}/backups:/archive
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${DOCKER_ROOT:-/nfs/docker}:/source:ro
+      - kopia-cache:/app/cache
+      - kopia-config:/app/config
+    environment:
+      - KOPIA_PASSWORD=${KOPIA_PASSWORD:?err}
+      # Cron schedule: Daily at 3 AM
+      - KOPIA_JOB_SCHEDULE=0 3 * * *
+    # Startup: Connect to repo -> Server mode
+    # Note: Initial init must be done via 'docker exec' if repo doesn't exist?
+    # Actually, let's use a simple looped script or entrypoint override for auto-c/n
+    entrypoint: |
+      /bin/sh -c "
+      echo '🚀 Kopia Starting...';
+      if [ -z \"\$KOPIA_PASSWORD\" ]; then echo '❌ KOPIA_PASSWORD not set!'; exit 1; fi;
+      
+      # Attempt to connect to existing repo
+      kopia repository connect webdav \\
+        --url=\${WEBDAV_URL} \\
+        --webdav-username=\${WEBDAV_USER} \\
+        --webdav-password=\${WEBDAV_PASS} \\
+        --override-hostname=vps-backup \\
+        --override-username=root || \\
+      # If connect fails, try to create (Initialize)
+      kopia repository create webdav \\
+        --url=\${WEBDAV_URL} \\
+        --webdav-username=\${WEBDAV_USER} \\
+        --webdav-password=\${WEBDAV_PASS} \\
+        --override-hostname=vps-backup \\
+        --override-username=root;
+
+      # Set policy (Keep 7 daily, 4 weekly)
+      kopia policy set --global --keep-daily 7 --keep-weekly 4 --keep-monthly 6;
+
+      # Create snapshot now (on start)
+      echo '📸 Creating statup snapshot...';
+      kopia snapshot create /source;
+
+      # Start server for maintenance/GUI (Optional) or just loop
+      echo '✅ Kopia Init Done. Sleeping...';
+      # We use a simple loop to simulate cron-like behavior if not using server mode
+      # But kopia has 'server' mode. Let's run server mode to allow remote management if needed?
+      # For simplicity and stability, we just sleep. The user can 'docker exec' to run snapshots manually.
+      # WAIT! User wants AUTOMATION. A simple cron loop is better.
+      echo '⏰ Starting Cron Loop (Daily 03:00)...';
+      while true; do
+        current_hour=\$(date +%H%M)
+        if [ \"\$current_hour\" = \"0300\" ]; then
+            echo '📸 Daily Snapshot...';
+            kopia snapshot create /source;
+            kopia maintenance run --full;
+            sleep 60; # Avoid double run
+        fi
+        sleep 50;
+      done
+      "
+
+volumes:
+  kopia-cache:
+  kopia-config:
 
 networks:
   vps-net:
