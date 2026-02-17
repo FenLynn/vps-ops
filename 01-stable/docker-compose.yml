@@ -104,6 +104,23 @@ services:
       # Set policy (Keep 7 daily, 4 weekly)
       kopia policy set --global --keep-daily 7 --keep-weekly 4 --keep-monthly 6;
 
+      # AUTO-RESTORE LOGIC: If repository exists BUT local is empty (Fresh Install)
+      # We check for a specific marker file or key directory to decide if we should restore
+      # Safety check: Only restore if /source/vps-ops does NOT exist
+      if [ ! -d "/source/vps-ops" ]; then
+          echo "⚠️ Fresh Install Detected (No local data). Checking for remote snapshots...";
+          LATEST_SNAP=\$(kopia snapshot list /source --json | grep -o '"id": "[^"]*"' | head -n 1 | cut -d '"' -f 4)
+          if [ ! -z "\$LATEST_SNAP" ]; then
+              echo "✅ Found remote snapshot: \$LATEST_SNAP. Restoring...";
+              kopia snapshot restore \$LATEST_SNAP /source;
+              echo "🎉 Restore Complete! Please restart containers to apply data.";
+          else
+              echo "ℹ️ No remote snapshots found. Starting fresh.";
+          fi
+      else
+          echo "✅ Local data exists. Skipping auto-restore.";
+      fi
+
       # Create snapshot now (on start)
       echo '📸 Creating statup snapshot...';
       kopia snapshot create /source;
