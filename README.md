@@ -290,6 +290,7 @@ cd ../01-stable && docker compose pull && docker compose up -d
 **自动备份**：
 - 时间：每日凌晨 3 点
 - 范围：包括基础设施证书、业务数据、管理层配置 (Dockge/Homarr)
+- **自动排除**：日志文件 (`*.log`)、缓存 (`cache/`)、临时文件 (`*.tmp`)
 - 位置：`/nfs/docker/backups/`
 - 保留：最近 7 天
 
