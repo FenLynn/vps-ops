@@ -12,5 +12,3 @@ exclude_docs: |
   *.yml
   *.yaml
 
-nav:
-  - 首页: index.md
