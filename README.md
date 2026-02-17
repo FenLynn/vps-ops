@@ -106,11 +106,17 @@ DERP_DOMAIN=derp.yourdomain.com
 
 **可选项**：
 ```ini
-# PushPlus Token（微信通知）
+# PushPlus Token（微信通知，可选）
 PUSHPLUS_TOKEN=your_pushplus_token
 
-# GitHub Token（用于拉取私有镜像，可选）
-GH_TOKEN=ghp_...
+# Kopia 备份密码 & WebDAV 配置（强烈推荐配置）
+KOPIA_PASSWORD=your_strong_password
+WEBDAV_URL=https://...
+WEBDAV_USER=...
+WEBDAV_PASS=...
+
+# New API 管理员密码
+NEW_API_ADMIN_PASSWORD=your_password
 ```
 
 #### 4. 一键部署
@@ -311,17 +317,11 @@ docker exec -it kopia kopia snapshot create /source
    - 🚀 **自动下载并解压最新快照**
 
 3. **手动干预 (仅在自动失败时)**：
-
-2. **列出快照**：
    ```bash
+   # 1. 列出快照
    docker exec -it kopia kopia snapshot list /source
-   # 输出示例：
-   # 2026-02-17 03:00:00 k7a8b9c0... (latest)
-   ```
-
-3. **执行恢复**：
-   ```bash
-   # 恢复最新快照到 /nfs/docker
+   
+   # 2. 恢复指定快照 (如 latest)
    docker exec -it kopia kopia snapshot restore latest /source
    ```
    *注意：恢复会覆盖当前 `/nfs/docker` 下的文件，请谨慎操作。*
