@@ -2,9 +2,9 @@ name: Infrastructure Validation
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   validate:
@@ -18,12 +18,10 @@ jobs:
 
       - name: Validate Docker Compose
         run: |
-          # Create temporary .env file for validation
+          # 创建临时 .env 文件用于验证
           cp .env.example .env
-          sed -i 's/your_cloudflare_tunnel_token/dummy_token/g' .env
-          sed -i 's/your_cloudflare_dns_token/dummy_token/g' .env
-          sed -i 's/derp.yourdomain.com/test.domain.com/g' .env
-          
-          # Check syntax for all compose files
-          docker compose -f 00-infra/docker-compose.yml config --quiet
-          docker compose -f 01-stable/docker-compose.yml config --quiet
+          docker compose -f compose/docker-compose.yml config --quiet
+
+      - name: Check Python Syntax
+        run: |
+          python3 -c "import py_compile; py_compile.compile('config/fastapi-gateway/main.py', doraise=True)"

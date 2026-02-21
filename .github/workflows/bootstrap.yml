@@ -1,0 +1,156 @@
+name: "🚀 Bootstrap: 初始化全新 VPS"
+
+# =============================================================================
+# 触发方式: 手动 (workflow_dispatch)
+# 场景: 更换 VPS 或全新 VPS 首次部署时运行一次
+# =============================================================================
+# 所需 GitHub Secrets (建议存放在 Environment 中):
+#   VPS_HOST         - VPS 公网 IP 或域名
+#   VPS_ROOT_PASS    - VPS root 初始密码 (只在这里用一次)
+#   VPS_SSH_PUBKEY   - SSH 公钥内容 (写入 VPS, 后续 deploy 用对应私钥登录)
+#   VPS_ENV_CONTENT  - 完整的 .env 文件内容 (含所有服务密钥)
+# =============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: "选择部署目标环境"
+        required: true
+        default: "Production"
+        type: string
+      vps_host_override:
+        description: "临时覆盖 VPS IP (可选)"
+        required: false
+        type: string
+
+env:
+  DEPLOY_DIR: /opt/vps-dmz
+  REPO_URL: https://github.com/${{ github.repository }}.git
+
+jobs:
+  bootstrap:
+    name: 初始化 VPS
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # 🌟 关键：指定环境以读取对应的 Secrets
+    environment: ${{ github.event.inputs.target_env }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # ─── 安装 sshpass (用 root 密码登录，仅此一次) ───
+      - name: 安装 sshpass
+        run: sudo apt-get install -y sshpass
+
+      # ─── 确定目标 VPS IP ───
+      - name: 设置目标 IP
+        id: vars
+        run: |
+          VPS_IP="${{ github.event.inputs.vps_host_override || secrets.VPS_HOST }}"
+          if [ -z "$VPS_IP" ]; then
+            echo "❌ 错误: VPS IP 未提供 (inputs.vps_host_override 或 Secret VPS_HOST)"
+            exit 1
+          fi
+          echo "VPS_IP=$VPS_IP" >> $GITHUB_OUTPUT
+          echo "✅ 目标环境: ${{ github.event.inputs.target_env }}"
+          echo "✅ 目标 VPS: $VPS_IP"
+
+      # ─── 第一步: 上传 SSH 公钥 (使用 root 密码) ───
+      - name: 上传 SSH 公钥到 VPS
+        env:
+          VPS_IP: ${{ steps.vars.outputs.VPS_IP }}
+          ROOT_PASS: ${{ secrets.VPS_ROOT_PASS }}
+          SSH_PUBKEY: ${{ secrets.VPS_SSH_PUBKEY }}
+        run: |
+          echo "📤 上传 SSH 公钥..."
+          sshpass -p "$ROOT_PASS" ssh \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=30 \
+            root@$VPS_IP \
+            "mkdir -p /root/.ssh && echo '$SSH_PUBKEY' >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys"
+          echo "✅ SSH 公钥已上传"
+
+      # ─── 第二步: 克隆仓库并注入 .env ───
+      - name: 部署仓库和 .env 到 VPS
+        env:
+          VPS_IP: ${{ steps.vars.outputs.VPS_IP }}
+          ROOT_PASS: ${{ secrets.VPS_ROOT_PASS }}
+          ENV_CONTENT: ${{ secrets.VPS_ENV_CONTENT }}
+        run: |
+          echo "📦 克隆仓库到 VPS..."
+          sshpass -p "$ROOT_PASS" ssh \
+            -o StrictHostKeyChecking=no \
+            root@$VPS_IP \
+            "
+            set -e
+            # 安装 git (如果没有)
+            apt-get update -qq && apt-get install -y -qq git 2>/dev/null || yum install -y git 2>/dev/null
+
+            # 克隆或更新仓库
+            if [ -d '$DEPLOY_DIR/.git' ]; then
+              echo '仓库已存在，执行 pull...'
+              cd $DEPLOY_DIR && git pull
+            else
+              echo '克隆仓库...'
+              git clone $REPO_URL $DEPLOY_DIR
+            fi
+            "
+
+          echo "📝 注入 .env 文件..."
+          # 使用 printf 避免特殊字符问题
+          sshpass -p "$ROOT_PASS" ssh \
+            -o StrictHostKeyChecking=no \
+            root@$VPS_IP \
+            "cat > $DEPLOY_DIR/.env << 'ENVEOF'
+          $ENV_CONTENT
+          ENVEOF
+          chmod 600 $DEPLOY_DIR/.env"
+
+          echo "✅ 仓库和 .env 已就位"
+
+      # ─── 第三步: 运行 init_host.sh ───
+      - name: 运行 init_host.sh (全自动初始化)
+        env:
+          VPS_IP: ${{ steps.vars.outputs.VPS_IP }}
+          ROOT_PASS: ${{ secrets.VPS_ROOT_PASS }}
+          SSH_PUBKEY: ${{ secrets.VPS_SSH_PUBKEY }}
+        run: |
+          echo "🚀 开始全自动初始化 (约 5-10 分钟)..."
+          sshpass -p "$ROOT_PASS" ssh \
+            -o StrictHostKeyChecking=no \
+            -o ServerAliveInterval=60 \
+            root@$VPS_IP \
+            "
+            set -e
+            cd $DEPLOY_DIR
+
+            # 将 Actions SSH 公钥也注入给 sudor 用户 (init_host.sh 会创建此用户)
+            export INJECT_SSH_PUBKEY='$SSH_PUBKEY'
+
+            # 以非交互模式运行
+            export NONINTERACTIVE=true
+            bash scripts/init_host.sh
+            "
+          echo "✅ 初始化完成!"
+
+      # ─── 第四步: 验证部署 ───
+      - name: 验证服务状态
+        env:
+          VPS_IP: ${{ steps.vars.outputs.VPS_IP }}
+          ROOT_PASS: ${{ secrets.VPS_ROOT_PASS }}
+        run: |
+          echo "🔍 检查容器状态..."
+          sleep 15  # 等待容器启动
+
+          sshpass -p "$ROOT_PASS" ssh \
+            -o StrictHostKeyChecking=no \
+            root@$VPS_IP \
+            "docker ps --format 'table {{.Names}}\t{{.Status}}'"
+
+          echo ""
+          echo "=========================================="
+          echo "✅ Bootstrap 完成!"
+          echo "环境: ${{ github.event.inputs.target_env }}"
+          echo "=========================================="

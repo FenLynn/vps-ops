@@ -1,8 +1,27 @@
-# Secrets
+# Secrets (严禁提交)
 .env
+.env.*
+!.env.example
+
+# 运行时数据 (仅存在于 VPS)
+data/
+logs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
 
 # Logs
 *.log
 
 # OS
 .DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

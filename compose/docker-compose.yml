@@ -1,0 +1,336 @@
+# =============================================================================
+# VPS-OPS v2.0 — 统一服务编排文件
+# 所有服务在同一文件中管理，通过 depends_on 控制启动顺序
+# 零端口暴露架构：除 DERP 外，所有流量走 Cloudflare Tunnel
+# =============================================================================
+
+# ─── 全局变量约定 ───
+# BASE_DIR      = /opt/vps-dmz          (宿主机根目录)
+# MAIN_DOMAIN   = 660415.xyz            (主域名)
+# DERP_DOMAIN   = derp.660415.xyz       (DERP 节点域名)
+# ACME_STAGING  = true | false
+#   true  → 使用 Let's Encrypt 测试服务器 (无限次数，证书不受信任，用于调试)
+#   false → 使用 Let's Encrypt 生产服务器 (正式证书，每域名每周限5次)
+
+services:
+
+  # =========================================================================
+  # Layer 0: 基础设施 (Infrastructure)
+  # =========================================================================
+
+  # --- Cloudflare Tunnel (安全入口) ---
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel run --token ${CF_TOKEN:?CF_TOKEN is required}
+    networks:
+      - vps_tunnel_net
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "info"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # --- 证书管理 (acme.sh daemon 常驻) ---
+  acme:
+    image: neilpang/acme.sh:latest
+    container_name: acme
+    restart: unless-stopped
+    command: daemon
+    volumes:
+      - ${BASE_DIR:-/opt/vps-dmz}/data/acme:/acme.sh
+    environment:
+      - CF_Token=${CF_DNS_API_TOKEN:?CF_DNS_API_TOKEN is required}
+      - CF_Account_ID=${CLOUDFLARE_ACCOUNT_ID:-}
+    network_mode: host
+
+  # --- 首次证书签发 (一次性任务) ---
+  acme-init:
+    image: neilpang/acme.sh:latest
+    container_name: acme-init
+    depends_on:
+      - acme
+    volumes:
+      - ${BASE_DIR:-/opt/vps-dmz}/data/acme:/acme.sh
+    environment:
+      - CF_Token=${CF_DNS_API_TOKEN:?CF_DNS_API_TOKEN is required}
+      - DERP_DOMAIN=${DERP_DOMAIN:-localhost}
+      # ⚙️ 测试模式开关
+      # ACME_STAGING=true  → 使用测试服务器(无限次，证书不受信任)
+      # ACME_STAGING=false → 使用生产服务器(正式证书，有速率限制)
+      - ACME_STAGING=${ACME_STAGING:-false}
+    network_mode: host
+    restart: "no"
+    command: |
+      /bin/sh -c "
+      sleep 10;
+
+      # 根据 ACME_STAGING 选择 CA 服务器
+      if [ \"$$ACME_STAGING\" = \"true\" ]; then
+        ACME_SERVER=letsencrypt_test;
+        echo '⚠️  [STAGING MODE] 使用 Let'\''s Encrypt 测试服务器 - 证书不受浏览器信任!';
+      else
+        ACME_SERVER=letsencrypt;
+        echo '🔒 [PROD MODE] 使用 Let'\''s Encrypt 生产服务器';
+      fi;
+
+      if [ ! -s /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt ] || ! grep -q 'BEGIN CERTIFICATE' /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt; then
+        echo '🚀 签发证书: $$DERP_DOMAIN (server=$$ACME_SERVER)...';
+        rm -rf /acme.sh/$$DERP_DOMAIN/*;
+        /entry.sh --issue --server $$ACME_SERVER -d $$DERP_DOMAIN --dns dns_cf --keylength ec-256;
+        mkdir -p /acme.sh/$$DERP_DOMAIN;
+        /entry.sh --install-cert -d $$DERP_DOMAIN --ecc \\
+          --cert-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt \\
+          --key-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.key;
+        # 回退: 从 _ecc 目录强制拷贝
+        if [ ! -s /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt ]; then
+          echo '⚠️ 标准安装未成功，从 ECC 目录强制拷贝...';
+          cp -f /acme.sh/$${DERP_DOMAIN}_ecc/$${DERP_DOMAIN}.cer /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt 2>/dev/null || true;
+          cp -f /acme.sh/$${DERP_DOMAIN}_ecc/$${DERP_DOMAIN}.crt /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt 2>/dev/null || true;
+          cp -f /acme.sh/$${DERP_DOMAIN}_ecc/$${DERP_DOMAIN}.key /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.key 2>/dev/null || true;
+        fi
+        echo '📂 证书目录:'; ls -la /acme.sh/$$DERP_DOMAIN/;
+        if [ ! -s /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt ] || ! grep -q 'BEGIN CERTIFICATE' /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt; then
+          echo '❌ 致命错误: 证书签发失败'; exit 1;
+        fi
+      else
+        echo '✅ 证书已存在: $$DERP_DOMAIN';
+        if [ \"$$ACME_STAGING\" = \"true\" ]; then
+          echo '⚠️  注意: 当前证书为测试证书，切换到生产前请删除 data/acme/ 目录!';
+        fi
+      fi;
+      chmod 644 /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt 2>/dev/null || true;
+      chmod 644 /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.key 2>/dev/null || true;
+      "
+
+  # --- 自动更新 (Watchtower) ---
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_SCHEDULE=0 0 4 * * *
+      - DOCKER_API_VERSION=1.44
+      - WATCHTOWER_NOTIFICATION_URL=${WATCHTOWER_NOTIFICATION_URL:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # =========================================================================
+  # Layer 1: 核心业务 (Business Logic)
+  # =========================================================================
+
+  # --- DERP 中继节点 (唯一允许暴露端口的服务) ---
+  derper:
+    image: fredliang/derper:latest
+    container_name: derper
+    restart: unless-stopped
+    ports:
+      - "${DERP_PORT:-33445}:${DERP_PORT:-33445}"          # TCP 加密中继
+      - "${DERP_STUN_PORT:-3478}:${DERP_STUN_PORT:-3478}/udp"  # UDP STUN 打洞
+    environment:
+      - DERP_DOMAIN=${DERP_DOMAIN:-localhost}
+      - DERP_ADDR=:${DERP_PORT:-33445}
+      - DERP_CERT_MODE=manual
+    volumes:
+      - ${BASE_DIR:-/opt/vps-dmz}/data/acme/${DERP_DOMAIN:-localhost}:/app/certs:ro
+    depends_on:
+      acme-init:
+        condition: service_completed_successfully
+    networks:
+      - vps_tunnel_net
+
+  # --- New API (AI 接口网关) ---
+  new-api:
+    image: calciumion/new-api:latest
+    container_name: new-api
+    restart: unless-stopped
+    volumes:
+      - ${BASE_DIR:-/opt/vps-dmz}/data/new-api:/data
+      - ${BASE_DIR:-/opt/vps-dmz}/logs/new-api:/logs
+    environment:
+      # SQLite 模式：主库在 /data，日志库隔离到 /logs
+      - DB_TYPE=sqlite
+      - SQL_DSN=
+      - LOG_SQL_DSN=/logs/api-log.db
+      - NODE_TYPE=master
+      - CHANNEL_UPDATE_FREQUENCY=30
+      - BATCH_UPDATE_ENABLED=true
+      - GLOBAL_API_RATE_LIMIT=180
+      - GLOBAL_WEB_RATE_LIMIT=60
+      - INITIAL_ROOT_TOKEN=${NEW_API_ADMIN_PASSWORD:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/status || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - vps_tunnel_net
+    # 🚫 无端口暴露，通过 CF Tunnel 访问
+
+  # --- 网易云解灰代理 ---
+  unblock-netease:
+    image: ${UNBLOCK_NETEASE_IMAGE:-pan93412/unblock-netease-cloud-music:enhanced}
+    container_name: unblock-netease
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    networks:
+      - vps_tunnel_net
+
+  # --- YesPlayMusic 后端 API ---
+  music-api:
+    image: ${MUSIC_API_IMAGE:-binaryify/netease_cloud_music_api:latest}
+    container_name: music-api
+    restart: unless-stopped
+    environment:
+      # 强制通过解灰代理访问
+      - HTTP_PROXY=http://unblock-netease:8080
+      - HTTPS_PROXY=http://unblock-netease:8080
+    depends_on:
+      - unblock-netease
+    networks:
+      - vps_tunnel_net
+    # 🚫 无端口暴露，通过 CF Tunnel 访问
+
+  # --- Nginx Relay (公私网桥接 → NAS) ---
+  nginx-relay:
+    image: nginx:alpine
+    container_name: nginx-relay
+    restart: unless-stopped
+    volumes:
+      - ${BASE_DIR:-/opt/vps-dmz}/config/nginx-relay/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ${BASE_DIR:-/opt/vps-dmz}/logs/nginx:/var/log/nginx
+    # 让容器能访问宿主机 (Linux bridge 网络下 host.docker.internal 需要此配置)
+    # 宿主机上运行 Tailscale，容器通过宿主机路由到 NAS
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - cloudflared
+    networks:
+      - vps_tunnel_net
+    # 🚫 无端口暴露，通过 CF Tunnel 访问
+
+
+  # --- FastAPI 统一网关 ---
+  fastapi-gateway:
+    build:
+      context: ${BASE_DIR:-/opt/vps-dmz}/config/fastapi-gateway
+      dockerfile: Dockerfile
+    image: vps-ops/fastapi-gateway:latest
+    container_name: fastapi-gateway
+    restart: unless-stopped
+    environment:
+      - FASTAPI_SECRET_KEY=${FASTAPI_SECRET_KEY:-changeme}
+      - NEW_API_URL=http://new-api:3000
+      - MUSIC_API_URL=http://music-api:3000
+      - NGINX_RELAY_URL=http://nginx-relay:80
+    depends_on:
+      - cloudflared
+      - new-api
+    networks:
+      - vps_tunnel_net
+    # 🚫 无端口暴露，通过 CF Tunnel 访问
+
+  # --- Uptime Kuma (监控面板) ---
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: uptime-kuma
+    restart: unless-stopped
+    volumes:
+      - ${BASE_DIR:-/opt/vps-dmz}/data/uptime-kuma:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3001 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - vps_tunnel_net
+    # 🚫 无端口暴露，通过 CF Tunnel 访问
+
+  # --- Kopia 备份 (增量备份到 WebDAV) ---
+  kopia:
+    image: kopia/kopia:latest
+    container_name: kopia
+    restart: unless-stopped
+    hostname: vps-backup
+    volumes:
+      # 仅挂载 data/ 目录（备份目标），不挂载 logs/
+      - ${BASE_DIR:-/opt/vps-dmz}/data:/source:ro
+      - kopia-cache:/app/cache
+      - kopia-config:/app/config
+    environment:
+      - KOPIA_PASSWORD=${KOPIA_PASSWORD:?KOPIA_PASSWORD is required}
+    entrypoint: |
+      /bin/sh -c "
+      echo '🚀 Kopia 启动...';
+      if [ -z \"$$KOPIA_PASSWORD\" ]; then echo '❌ KOPIA_PASSWORD 未设置!'; exit 1; fi;
+
+      # 连接或创建仓库
+      kopia repository connect webdav \
+        --url=${WEBDAV_URL} \
+        --webdav-username=${WEBDAV_USER} \
+        --webdav-password=${WEBDAV_PASS} \
+        --override-hostname=vps-backup \
+        --override-username=root || \
+      kopia repository create webdav \
+        --url=${WEBDAV_URL} \
+        --webdav-username=${WEBDAV_USER} \
+        --webdav-password=${WEBDAV_PASS} \
+        --override-hostname=vps-backup \
+        --override-username=root;
+
+      # 设置保留策略
+      kopia policy set --global --keep-daily 7 --keep-weekly 4 --keep-monthly 6;
+
+      echo '✅ Kopia 就绪，等待外部 backup_kopia.sh 触发快照...';
+      # 保持容器运行，由宿主机 crontab 调用 docker exec 触发备份
+      tail -f /dev/null
+      "
+
+  # =========================================================================
+  # Layer 2: 管理面板 (Management)
+  # =========================================================================
+
+  # --- Dockge (容器管理) ---
+  dockge:
+    image: louislam/dockge:1
+    container_name: dockge
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${BASE_DIR:-/opt/vps-dmz}/data/dockge:/app/data
+    environment:
+      - DOCKGE_STACKS_DIR=/app/stacks
+    networks:
+      - vps_tunnel_net
+    # 🚫 无端口暴露，通过 CF Tunnel + Access 访问
+
+  # --- Homarr (导航仪表盘) ---
+  homarr:
+    image: ghcr.io/ajnart/homarr:latest
+    container_name: homarr
+    restart: unless-stopped
+    volumes:
+      - ${BASE_DIR:-/opt/vps-dmz}/data/homarr/configs:/app/data/configs
+      - ${BASE_DIR:-/opt/vps-dmz}/data/homarr/icons:/app/public/icons
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - vps_tunnel_net
+    # 🚫 无端口暴露，通过 CF Tunnel + Access 访问
+
+# =============================================================================
+# 网络定义
+# =============================================================================
+networks:
+  vps_tunnel_net:
+    name: vps_tunnel_net
+    driver: bridge
+
+# =============================================================================
+# 命名卷
+# =============================================================================
+volumes:
+  kopia-cache:
+  kopia-config:

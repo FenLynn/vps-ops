@@ -1,0 +1,124 @@
+name: "🔄 Deploy: 持续部署到 VPS"
+
+# =============================================================================
+# 触发方式:
+#   - push 到 main 分支 (自动部署到 Production 环境)
+#   - workflow_dispatch (手动，可选择部署目标环境)
+# 场景: VPS 已完成 bootstrap 后，每次代码更新自动/手动触发部署
+# =============================================================================
+# 所需 GitHub Secrets (建议按 Environment 存放):
+#   VPS_HOST             - VPS 公网 IP
+#   VPS_SSH_PORT         - SSH 端口 (22222)
+#   VPS_USER             - SSH 用户名 (sudor)
+#   VPS_SSH_PRIVATE_KEY  - SSH 私钥内容
+#   VPS_ENV_CONTENT      - 完整的 .env 文件内容
+# =============================================================================
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'compose/**'
+      - 'config/**'
+      - 'scripts/**'
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: "选择部署目标环境"
+        required: true
+        default: "Production"
+        type: string
+
+jobs:
+  validate:
+    name: 语法校验
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell 脚本语法检查
+        run: find . -name "*.sh" -exec bash -n {} +
+
+      - name: Docker Compose 语法验证
+        run: |
+          cp .env.example .env
+          docker compose -f compose/docker-compose.yml config --quiet
+
+      - name: Python 语法检查
+        run: python3 -m py_compile config/fastapi-gateway/main.py
+
+  deploy:
+    name: 部署到 VPS
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # 🌟 关键：自动 push 走 Production，手动触发走选择的环境
+    environment: ${{ github.event.inputs.target_env || 'Production' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ─── 配置 SSH 私钥 ───
+      - name: 配置 SSH 私钥
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # 添加 VPS 到 known_hosts
+          ssh-keyscan \
+            -p "${{ secrets.VPS_SSH_PORT || '22222' }}" \
+            "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      # ─── 同步 .env (如果有更新) ───
+      - name: 同步 .env 到 VPS
+        run: |
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -p "${{ secrets.VPS_SSH_PORT || '22222' }}" \
+            -o StrictHostKeyChecking=no \
+            "${{ secrets.VPS_USER || 'sudor' }}@${{ secrets.VPS_HOST }}" \
+            "cat > /opt/vps-dmz/.env << 'ENVEOF'
+          ${{ secrets.VPS_ENV_CONTENT }}
+          ENVEOF
+          chmod 600 /opt/vps-dmz/.env"
+
+      # ─── 主部署逻辑 ───
+      - name: 拉取代码并重启服务
+        run: |
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -p "${{ secrets.VPS_SSH_PORT || '22222' }}" \
+            -o StrictHostKeyChecking=no \
+            -o ServerAliveInterval=30 \
+            "${{ secrets.VPS_USER || 'sudor' }}@${{ secrets.VPS_HOST }}" \
+            '
+            set -e
+            echo "📦 拉取最新代码..."
+            cd /opt/vps-dmz
+            git pull origin main
+
+            echo "🔄 同步配置文件..."
+            cp -f compose/docker-compose.yml ./docker-compose.yml
+            cp -f config/nginx-relay/nginx.conf ./config/nginx-relay/nginx.conf 2>/dev/null || true
+            cp -rf config/fastapi-gateway/* ./config/fastapi-gateway/ 2>/dev/null || true
+            cp -f scripts/*.sh ./scripts/ && chmod +x ./scripts/*.sh
+
+            # 如果 FastAPI 代码有变动则重新构建
+            if git diff HEAD~1 --name-only 2>/dev/null | grep -q "config/fastapi-gateway/"; then
+              echo "🏗️ 重建 FastAPI 网关镜像..."
+              docker build -t vps-ops/fastapi-gateway:latest ./config/fastapi-gateway/
+            fi
+
+            echo "🚀 更新服务..."
+            docker compose pull --quiet --ignore-pull-failures
+            docker compose up -d --remove-orphans
+
+            echo ""
+            docker ps --format "table {{.Names}}\t{{.Status}}"
+            echo "✅ 环境部署完成: ${{ github.event.inputs.target_env || 'Production' }}"
+            '
+
+      # ─── 清理临时文件 ───
+      - name: 清理 SSH 密钥
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

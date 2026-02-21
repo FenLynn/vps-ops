@@ -1,8 +1,8 @@
-# 🚀 VPS-Ops: 生产级服务器全自动部署方案
+# 🚀 VPS-Ops v2.0: DMZ 无状态云端堡垒机
 
 <div align="center">
 
-**零基础 · 全自动 · 甚至不需要公网 IP**
+**零基础 · 全自动 · 无需公网 IP · SQLite 原子性备份**
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-compose-blue)](https://docs.docker.com/compose/)
@@ -14,211 +14,291 @@
 
 ## 📖 这是一个什么项目？
 
-您是否经历过：
-*   买了一台新 VPS，要花半天时间安装 Docker、配置防火墙、申请 SSL 证书？
-*   想在服务器上跑个 AI（OneAPI）或者仪表盘（Homarr），却被 Nginx 反向代理搞得头大？
-*   服务器裸奔在公网，每天被扫描几十万次，提心吊胆？
-*   想备份数据，却只能手动打包下载，重装系统后恢复极其痛苦？
+VPS-Ops 是一个 **"基础设施即代码 (IaC)"** 的自动化部署方案。它能将一台全新的 VPS，通过一条命令，变成一个**安全、现代、功能强大**的私人云端堡垒机。
 
-**VPS-Ops 就是为了解决这些问题而生的。**
-
-它是一个 **"基础设施即代码 (IaC)"** 的自动化脚本。您只需要填好几个密码，运行一条命令，它就会像变魔术一样，自动把一台还有余温的新 VPS，变成一个**安全、现代、功能强大**的私人数据中心。
+该 VPS 定位为家庭数据中心（NAS）的"公网前哨站、安全清洗网关、Tailscale 底层穿透节点"。
 
 ---
 
-## �️ 它是如何工作的？（原理篇）
-
-为了保证稳定和易维护，我们将系统分成了三层（这也是您会在文件夹里看到的结构）：
+## 🏗️ 架构总览
 
 ```mermaid
 graph TD
     User((用户)) --> CF[Cloudflare 全球边缘节点]
-    CF --> Tunnel[🔒 安全隧道 (无需公网IP)]
-    
-    subgraph VPS [您的服务器]
-        Tunnel --> Traefik[网关/TLS 终结]
-        
-        subgraph Layer0 [Layer 0: 基础设施]
-            ACME[acme.sh 证书自动续期]
+    CF --> Tunnel[🔒 安全隧道]
+
+    subgraph VPS [VPS 服务器 /opt/vps-dmz/]
+        Tunnel --> |vps_tunnel_net| Services
+
+        subgraph Infra [基础设施层]
+            ACME[acme.sh 证书管理]
             Watchtower[自动更新]
         end
-        
-        subgraph Layer1 [Layer 1: 核心业务]
-            NewAPI[AI 接口网关]
-            Uptime[监控面板]
-            Derp[Tailscale 中继]
+
+        subgraph Services [业务逻辑层]
+            NewAPI[new-api: AI 接口网关]
+            MusicAPI[music-api: 音乐后端]
+            Unblock[unblock-netease: 解灰代理]
+            FastAPI[fastapi-gateway: 统一网关]
+            NginxRelay[nginx-relay: NAS 桥接]
+            Uptime[uptime-kuma: 监控面板]
         end
-        
-        subgraph Layer2 [Layer 2: 管理面板]
-            Dockge[容器管理]
-            Homarr[聚合导航页]
+
+        subgraph Management [管理面板层]
+            Dockge[dockge: 容器管理]
+            Homarr[homarr: 导航仪表盘]
         end
-        
-        subgraph Backup [�️ 灾备系统]
-            Kopia[Kopia 增量备份] --> WebDAV[☁️ 云端网盘]
+
+        subgraph Backup [灾备系统]
+            Kopia[Kopia 增量备份] --> WebDAV[☁️ 坚果云]
         end
     end
+
+    DERP[derper: Tailscale DERP] -.->|TCP:33445 + UDP:3478| User
+    NginxRelay -.->|Tailscale 100.x.x.x| NAS[🏠 家庭 NAS]
 ```
 
-1.  **Layer 0 (地基)**：负责脏活累活。自动申请 HTTPS 证书、建立 Cloudflare 隧道（让外网能安全访问内网）、自动更新软件。
-2.  **Layer 1 (核心)**：最重要的业务。比如 AI 接口(OneAPI)、监控(Uptime Kuma)。它们最先启动，最后关闭。
-3.  **Layer 2 (管理)**：可视化的面板。让您通过漂亮的网页管理服务器，而不是对着黑框框敲命令。
+### 域名体系
+
+| 二级域名 | 服务 | 说明 |
+|:---|:---|:---|
+| `new-api.660415.xyz` | New API | AI 接口管理 |
+| `music-api.660415.xyz` | Music API | 音乐后端 |
+| `api.660415.xyz` | FastAPI 网关 | 统一 API 入口 |
+| `status.660415.xyz` | Uptime Kuma | 监控面板 |
+| `music.660415.xyz` | CF Pages | 音乐前端 (静态托管) |
+| `webhook.660415.xyz` | nginx-relay | Webhook → NAS |
+| `dockge.660415.xyz` | Dockge | 容器管理 (Access 保护) |
+| `home.660415.xyz` | Homarr | 导航页 (Access 保护) |
+| `derp.660415.xyz` | DERP | Tailscale 中继 (直连) |
 
 ---
 
-## �️ 准备工作
+## 📁 目录结构
 
-在开始之前，您需要准备以下 4 样东西（就像炒菜前要备料）：
+```text
+vps-ops/                          # Git 仓库
+├── compose/
+│   └── docker-compose.yml        # 唯一核心编排文件 (14 个服务)
+├── config/
+│   ├── nginx-relay/nginx.conf    # Nginx 反代配置
+│   └── fastapi-gateway/          # FastAPI 网关代码
+├── scripts/
+│   ├── init_host.sh              # 裸机一键初始化
+│   ├── backup_kopia.sh           # 原子性备份
+│   ├── cert_renew.sh             # 证书续期回调
+│   └── prune.sh                  # Docker 清理
+├── presets/                      # Shell 预设
+├── .github/workflows/            # CI/CD
+├── .env.example                  # 环境变量模板
+└── config.ini                    # 基础配置
+```
 
-1.  **一台 VPS**：
-    *   推荐配置：2核 2G 内存以上（虽然 1核1G 也能跑，但有点勉强）。
-    *   系统：推荐 **Debian 11/12** 或 Ubuntu 20.04/22.04（CentOS 也可以，但稍微麻烦点）。
-2.  **一个域名**：
-    *   必须托管在 **Cloudflare**（因为我们需要它的 API 来自动申请证书）。
-3.  **Cloudflare 账号**：
-    *   用于创建 **Tunnel**（隧道）。这是本项目的核心，它能让您的服务在不开放 80/443 端口的情况下被外网访问，极其安全。
-4.  **WebDAV 网盘**（可选，但强烈推荐）：
-    *   推荐 **TeraCloud** (免费 10GB) 或坚果云。用于存放每日自动备份的数据。
+VPS 部署后的运行时目录：
+
+```text
+/opt/vps-dmz/                     # 四维隔离
+├── docker-compose.yml
+├── config/   → 静态配置 (只读挂载)
+├── data/     → 核心数据 (Kopia 备份)
+└── logs/     → 日志数据 (不备份)
+```
 
 ---
 
-## ⚡️ 极速安装指南
+## ⚡️ 极速安装
 
-### 第一步：获取代码
-登录您的 VPS（推荐使用 SSH 工具），输入：
+### 1. 准备工作
 
-```bash
-# 1. 安装 git (如果已安装可跳过)
-apt update && apt install -y git  # Debian/Ubuntu
-# yum install -y git              # CentOS
+- 一台 VPS (2 核 2G+，Debian 11/12 或 Ubuntu 20.04+)
+- 一个域名 (托管在 Cloudflare)
+- Cloudflare Tunnel Token + DNS API Token
+- 坚果云 WebDAV (可选，用于备份)
 
-# 2. 下载本项目
-git clone https://github.com/FenLynn/vps-ops.git
-cd vps-ops
-```
-
-### 第二步：配置“秘密文件” (.env)
-这是最关键的一步。我们需要告诉脚本您的密码和 Token。
+### 2. 部署
 
 ```bash
-# 复制模板文件
+# 克隆仓库
+git clone https://github.com/FenLynn/vps-ops.git /opt/vps-dmz
+cd /opt/vps-dmz
+
+# 配置秘密文件
 cp .env.example .env
-
-# 编辑它 (小白推荐使用 nano，或者在本地改好传上去)
 nano .env
+
+# 一键发射 🚀
+sudo bash scripts/init_host.sh
 ```
 
-**您只需重点关注这几项（填错会导致服务无法启动）：**
+### 3. 配置 Cloudflare
+去 [Zero Trust Dashboard](https://one.dash.cloudflare.com/) 配置 Tunnel 路由，将各二级域名指向对应容器。
 
-| 变量名 | 必填 | 作用 | 获取方式 |
-| :--- | :--- | :--- | :--- |
-| `CF_TOKEN` | ✅ | Cloudflare 隧道的身份证 | [Cloudflare Zero Trust](https://one.dash.cloudflare.com/) -> Networks -> Tunnels -> Create |
-| `CF_DNS_API_TOKEN` | ✅ | 申请 SSL 证书的权限 | [Cloudflare API](https://dash.cloudflare.com/profile/api-tokens) -> Create -> Edit zone DNS |
-| `KOPIA_PASSWORD` | ✅ | 数据备份的加密密码 | **自己设定**（一定要复杂！丢了数据找不回！） |
-| `WEBDAV_URL` | ✅ | 备份传到哪里去 | 您的网盘 WebDAV 地址 |
-| `NEW_API_ADMIN_PASSWORD` | ✅ | AI 面板的管理员密码 | **自己设定** |
+---
 
-*(详细的 Token 获取图文教程，请看本文末尾的附录)*
+## 🤖 GitOps 自动控制 (GitHub Actions)
 
-### 第三步：一键发射 🚀
-确认 `.env` 没问题后，深吸一口气，执行：
+本项目推荐使用 **GitOps 零接触部署**：你不需要登录 SSH，甚至可以把 VPS 密码忘掉。一切操作通过 GitHub Actions 完成。
 
+### GitHub Secrets 配置清单 (必录)
+
+请在仓库 `Settings -> Secrets and variables -> Actions` 中录入以下 7 个变量：
+
+| Secret 名称 | 示例/建议值 | 说明 |
+|:---|:---|:---|
+| `VPS_HOST` | `1.2.3.4` | VPS 公网 IP |
+| `VPS_ROOT_PASS` | `YourPass` | **仅首次初始化用**：VPS root 初始密码 |
+| `VPS_SSH_PRIVATE_KEY` | `-----BEGIN...` | **钥匙**：本地生成的 SSH 私钥 |
+| `VPS_SSH_PUBKEY` | `ssh-ed25519...` | **锁**：本地生成的 SSH 公钥 |
+| `VPS_ENV_CONTENT` | *(全文内容)* | **配置文件**：`.env` 文件的全部内容（含注释） |
+| `VPS_SSH_PORT` | `22222` | 初始化完成后的 SSH 端口 |
+| `VPS_USER` | `sudor` | 初始化完成后使用的管理账号 |
+
+> **提示**：`VPS_ENV_CONTENT` 采取的是“全文注入”方案。你直接把本地带有 `#` 编号注释、空格、甚至空行的 `.env` 内容全选复制进去即可。
+
+---
+
+## 🛡️ 安全特性
+
+- **零端口暴露**: 除 DERP (TCP 33445 + UDP 3478) 和 SSH 外，所有端口关闭
+- **Cloudflare Access**: 管理面板 (Dockge/Homarr) 强制邮箱 OTP 验证
+- **WAF 防盗刷**: music-api 仅允许 music.660415.xyz Referer 访问
+- **SSH 加固**: 非标端口 + 禁 root + 禁密码 + Fail2Ban
+- **加密备份**: Kopia AES 加密后上传到坚果云
+
+## 💾 备份系统
+
+采用 SQLite 原子性备份铁律：
+1. `docker pause` 冻结数据库容器
+2. Kopia 精准快照 (排除 .shm/.wal)
+3. `docker unpause` 恢复业务 (< 10 秒)
+4. 自动清理过期快照
+
+
+
+## 📝 更新测试证书为生产证书
 ```bash
-sudo bash init_host.sh
+# 1. 改 .env
+sed -i 's/ACME_STAGING=true/ACME_STAGING=false/' /opt/vps-dmz/.env
+
+# 2. 清除测试证书
+rm -rf /opt/vps-dmz/data/acme/*
+
+# 3. 重新申请
+docker compose up -d --force-recreate acme acme-init derper
 ```
 
-**接下来会发生什么？**
-1.  **系统初始化**：脚本会优化内核参数，安装 Docker，创建一个叫 `sudor` 的安全用户。
-2.  **网络优化**：自动配置国内镜像源，再也不用担心拉取镜像卡在 0% 了。
-3.  **启动服务**：依次启动 Layer 0, 1, 2 的所有服务。
-4.  **自动恢复**：如果是新机器且配置了备份，它甚至会自动从网盘把以前的数据拉回来！
-
-喝杯咖啡，等待出现 **"✅ All systems functional!"** 字样。
 
 ---
 
-## 🖥️ 如何访问我的服务？
+## 💡 GitOps 进阶 FAQ
 
-安装完成后，您可能会问：“IP:端口 怎么访问不了？”
-**是的，为了安全，我们默认关闭了所有端口（只留了 SSH）！**
+### Q1: 关于 SSH 端口 22222 的切换逻辑
+- **首次部署 (`bootstrap.yml`)**：使用 `root` + 端口 `22` 登录（这是全新 VPS 的默认值）。
+- **初始化后**：`init_host.sh` 会自动关闭端口 22，开启 22222，并创建 `sudor` 用户。
+- **后续更新 (`deploy.yml`)**：全自动识别 `secrets.VPS_SSH_PORT`（默认为 22222），使用 `sudor` 用户通过 SSH 私钥登录。你完全不需要手动干预。
 
-请去 Cloudflare Zero Trust 后台，配置 **Public Hostnames**：
+### Q2: `.env` 内容可以带注释吗？
+**完全可以。** 
+`VPS_ENV_CONTENT` 是采取的“全文注入”方案。你直接把本地带有 `#` 注释、空格、甚至空行的 `.env` 内容全选复制进去即可。脚本会原封不动地在 VPS 上生成对应的文件。
 
-| 服务名称 | 建议子域名 | 容器内部地址 (Service) |
-| :--- | :--- | :--- |
-| **New API (AI)** | `api.yourdomain.com` | `http://new-api:3000` |
-| **Uptime Kuma** | `status.yourdomain.com` | `http://uptime-kuma:3001` |
-| **Dockge (管理)** | `dockge.yourdomain.com` | `http://dockge:5001` |
-| **Homarr (导航)** | `home.yourdomain.com` | `http://homarr:7575` |
+### Q3: 想增加新服务（如 Jellyfin）怎么办？
+1. 在本地修改 `compose/docker-compose.yml`，增加 Jellyfin 容器配置。
+2. (可选) 如果有新密钥，更新到 GitHub 的 `VPS_ENV_CONTENT` Secret 中。
+3. `git commit` & `git push`。
+4. GitHub Actions 会自动触发 `deploy.yml`，在 VPS 上执行 `docker compose up -d`，新服务即刻上线。
 
-**💡 安全小贴士**：对于 `dockge` 和 `homarr` 这种管理后台，强烈建议在 Cloudflare 是开启 **Access**（身份验证），这样别人访问时需要输入邮箱验证码，安全性 MAX！
-
----
-
-## 🛡️ 关于数据备份 (小白必读)
-
-我们采用的是 **企业级** 的 Kopia 备份方案。
-
-*   **它存哪了？** 您配置的 WebDAV 网盘。
-*   **存了什么？** 您的所有配置、数据库、证书。不包含代码（代码在 git 里）。
-*   **安全吗？** 极其安全。数据在离服务器前就被加密了，网盘管理员也看不了。
-*   **怎么恢复？**
-    *   **自动**：新机器填好 `.env` 运行脚本，自动恢复。
-    *   **手动**：
-        ```bash
-        # 想回滚到昨天的状态？
-        docker exec -it kopia kopia snapshot restore latest /source
-        ```
+### Q4: 想要同时管理多台 VPS 怎么办？
+本方案具有极强的可横向扩展性，详见下方 **多机器管理** 章节。
 
 ---
 
-## ❓ 常见问题 (Q&A)
+## 🌐 扩展方案：多机器管理 (Environments)
 
-**Q: 脚本运行到一半断开了怎么办？**
-A: 没事，直接重新运行 `sudo bash init_host.sh`。脚本是“幂等”的，意思是运行 1 次和运行 100 次效果一样，不会破坏现有数据。
+如果你有多台 VPS（如香港节点、美国节点），可以使用 GitHub 的 **Environments** 功能进行隔离管理：
 
-**Q: 证书申请失败了？**
-A: 检查 `CF_DNS_API_TOKEN` 是否有多余空格？Cloudflare 偶尔会抽风，可以查看日志：`docker logs acme-init`。
+### 1. 创建环境隔离
+- 进入仓库 `Settings -> Environments`。
+- 点击 **New environment** 分别创建 `HK-Server` 和 `US-Server`。
+- 将上述 7 个 Secrets 分别填入对应的 Environment 下（而不是 Repository secrets）。
 
-**Q: 我想修改端口？**
-A: 编辑 `config.ini` 文件，然后重新运行脚本即可。
+### 2. 初始化新机
+- GitHub Actions 运行 `🚀 Bootstrap` 时，在弹出的下拉菜单中选择对应的目标环境（如 `HK-Server`）。
+- Actions 会自动从对应的“保险箱”取密钥进行部署。
+
+### 3. 环境逻辑
+- 你可以在 GitHub Actions 页面一眼看到每个环境目前的运行版本。
+- 也可以设置“保护规则”，例如：推送到 `Production` 环境的代码必须经过你的手动点击批准。
 
 ---
 
+# 🍼 零基础“保姆级”部署教程 (傻瓜版)
+
+> **目标**：从零开始，在 GitHub Actions 上点一下，完成 VPS 全自动初始化。
+
+### 第一步：生成“钥匙”对 (在你的本地电脑操作)
+
+1.  在 Windows 或 Mac 的终端输入这一行并回车：
+    ```powershell
+    ssh-keygen -t ed25519 -f vps-ops-key -N ""
+    ```
+2.  你的当前目录下会生成两个文件：
+    -   `vps-ops-key` (这是 **私钥**，对应钥匙)
+    -   `vps-ops-key.pub` (这是 **公钥**，对应锁)
+3.  用记事本打开它们，准备好内容。
 
 ---
 
-## 📚 附录：Token 获取手把手教程
+### 第二步：获取 Cloudflare 的两个核心 Token
 
-### 1. Cloudflare Tunnel Token (内网穿透)
-**这是什么？** 它像一条秘密地道，让全世界能访问您的服务，但又不需要您在防火墙上开洞。
-1.  打开 [Zero Trust Dashboard](https://one.dash.cloudflare.com/)。
-2.  点击左侧 **Networks** -> **Tunnels**。
-3.  点击 **Create a tunnel**。
-4.  随便起个名（比如 `vps-ops`），保存。
-5.  在 "Choose your environment" 选 **Docker**。
-6.  下面会出现一串命令，找到 `--token` 后面的那串乱码，复制它。
-    *   这就是 `CF_TOKEN`。
+#### 1. Tunnel Token (`CF_TOKEN`)
+-   登录 [Cloudflare Zero Trust](https://one.dash.cloudflare.com/) 
+-   点击左侧 `Networks` -> `Tunnels` -> `Create a tunnel`。
+-   起个名（如 `vps-vm`），选择 `Docker`。
+-   **看屏幕上的命令**，找到 `--token` 后面那一长串乱码（以 `eyJh...` 开头），复制它。
+-   **格式示例**：`eyJhIjoi...` (一长串字母数字)
 
-### 2. Cloudflare DNS API Token (证书申请)
-**这是什么？** 它是给自动化脚本的“授权书”，允许脚本证明“这个域名是我的”，从而申请 SSL 证书。
-1.  打开 [API Tokens 页面](https://dash.cloudflare.com/profile/api-tokens)。
-2.  点击 **Create Token**。
-3.  找到 **Edit zone DNS** 模板，点击 **Use template**。
-4.  **Zone Resources** 选 **Include** -> **Specific zone** -> **您的域名**。
-5.  点击 **Continue to summary** -> **Create Token**。
-6.  复制那个只显示一次的 Token。
-    *   这就是 `CF_DNS_API_TOKEN`。
+#### 2. DNS API Token (`CF_DNS_API_TOKEN`)
+-   去 [API Tokens 页面](https://dash.cloudflare.com/profile/api-tokens)。
+-   点击 `Create Token` -> 使用 `Edit zone DNS` 模板。
+-   在 `Zone Resources` 选 `Specific zone` -> 选择你的域名。
+-   点击 `Continue` -> `Create Token`。
+-   **格式示例**：`abc123456789...` (通常 40 位左右)
 
-### 3. Kopia Repository Password (备份密码)
-**这是什么？** 这是您数据的“保险箱密码”。
-*   **获取方式**：**不需要获取，由您自己想一个！**
-*   **要求**：越长越好，包含大小写、数字、符号。
-*   **注意**：**千万别丢！千万别丢！** 这个密码不存服务器，只存您的脑子里。如有丢失，神仙难救。
+---
 
-### 4. New API Admin Password
-**这是什么？** AI 接口管理面板的超级管理员密码。
-*   **获取方式**：**由您自己设定**。系统启动后，这就是您登录 `api.yourdomain.com` 的密码（账号是 root）。
+### 第三步：获取坚果云备份密码 (可选)
+
+-   登录坚果云 -> `账户信息` -> `安全选项` -> `第三方应用管理`。
+-   点击 `添加应用` -> 输入 `vps-ops-backup`。
+-   点击 `生成密码`。
+-   **格式示例**：`abcd-efgh-ijkl-mnop` (带连字符的字母)
+
+---
+
+### 第四步：录入 GitHub Secrets (这是最重要的一步！)
+
+1.  打开你的代码仓库页面 -> `Settings` -> `Secrets and variables` -> `Actions`。
+2.  点击 `New repository secret`，一个个录入这 7 个密钥：
+
+| 名称 | 如何获取 / 格式 |
+|:---|:---|
+| `VPS_HOST` | 你的 VPS 的 **公网 IP** (如 `123.45.67.89`) |
+| `VPS_ROOT_PASS` | 供应商给你的 **root 账户原始密码** |
+| `VPS_SSH_PRIVATE_KEY` | 拷贝第一步生成的 `vps-ops-key` 全文 (含 `-----BEGIN...`) |
+| `VPS_SSH_PUBKEY` | 拷贝第一步生成的 `vps-ops-key.pub` 全文 (只有一行) |
+| `VPS_ENV_CONTENT` | **全选复制** 仓库里的 `.env.example` 内容，把里面的 Token 换成你刚才撸到的。 |
+| `VPS_SSH_PORT` | 直接填 `22222` (建议) |
+| `VPS_USER` | 直接填 `sudor` (建议) |
+
+---
+
+### 第五步：起飞！🚀
+
+1.  点击仓库顶部的 **Actions** 标签。
+2.  点击左侧的 `🚀 Bootstrap: 初始化全新 VPS`。
+3.  点击右侧的 `Run workflow` 按钮。
+4.  如果是第一次，目标环境选 `Production` 即可，点击绿色按钮。
+5.  **喝杯咖啡** 🫖。大约 5-10 分钟，当图标变绿，你的堡垒机就满血上线了！
 
 ---
 
@@ -229,3 +309,4 @@ A: 编辑 `config.ini` 文件，然后重新运行脚本即可。
 Made with ❤️ by FenLynn
 
 </div>
+
