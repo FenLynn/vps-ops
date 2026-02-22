@@ -158,6 +158,8 @@ jobs:
           SSH_PORT: ${{ steps.vars.outputs.SSH_PORT }}
           ROOT_PASS: ${{ secrets.VPS_ROOT_PASS }}
           SSH_PUBKEY: ${{ secrets.VPS_SSH_PUBKEY }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+          GITHUB_USER: ${{ github.repository_owner }}
         run: |
           echo "🚀 开始全自动初始化 (Port: $SSH_PORT)..."
           sshpass -p "$ROOT_PASS" ssh \
@@ -171,6 +173,8 @@ jobs:
             cd $DEPLOY_DIR
             export INJECT_SSH_PUBKEY='$SSH_PUBKEY'
             export NONINTERACTIVE=true
+            export GHCR_PAT='$GHCR_PAT'
+            export GITHUB_USER='$GITHUB_USER'
             bash scripts/init_host.sh
             "
           echo "✅ 初始化完成!"

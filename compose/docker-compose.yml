@@ -175,7 +175,7 @@ services:
 
   # --- 网易云解灰代理 ---
   unblock-netease:
-    image: ${UNBLOCK_NETEASE_IMAGE:-pan93412/unblock-netease-cloud-music:enhanced}
+    image: ${UNBLOCK_NETEASE_IMAGE:-ghcr.io/fenlynn/unblock-netease:enhanced}
     container_name: unblock-netease
     restart: unless-stopped
     environment:
@@ -255,7 +255,7 @@ services:
 
   # --- Kopia 备份 (增量备份到 WebDAV) ---
   kopia:
-    image: kopia/kopia:latest
+    image: ${KOPIA_IMAGE:-ghcr.io/fenlynn/kopia:latest}
     container_name: kopia
     restart: unless-stopped
     hostname: vps-backup
@@ -313,7 +313,7 @@ services:
 
   # --- Homarr (导航仪表盘) ---
   homarr:
-    image: ghcr.dockerproxy.com/ajnart/homarr:latest
+    image: ghcr.io/ajnart/homarr:latest
     container_name: homarr
     restart: unless-stopped
     volumes:

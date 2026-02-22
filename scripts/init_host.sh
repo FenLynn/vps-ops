@@ -495,10 +495,10 @@ if [ "$REAL_SRC" != "$REAL_DEST" ]; then
     ln -sf "$REAL_SRC" "${BASE_DIR}/.env"
 fi
 
-# GHCR 登录 (仅在网络通畅时有效，报错不终止脚本)
-if [ -n "${GH_TOKEN:-}" ]; then
-    echo "  - 尝试登录 ghcr.io (可能受网络限制，失败将跳过)..."
-    echo "$GH_TOKEN" | docker login ghcr.io -u "${ADMIN_USER:-FenLynn}" --password-stdin 2>/dev/null || echo "    ⚠️  ghcr.io 登录超时，将尝试直接从国内镜像拉取"
+# GHCR 登录 (用于拉取私有 GitHub Packages)
+if [ -n "${GHCR_PAT:-}" ]; then
+    echo "  - [鉴权] 尝试登录 ghcr.io..."
+    echo "$GHCR_PAT" | docker login ghcr.io -u "${GITHUB_USER:-FenLynn}" --password-stdin 2>/dev/null || echo "    ⚠️  ghcr.io 登录失败，公共镜像不受影响"
 fi
 
 # 创建 Docker 网络
