@@ -175,7 +175,7 @@ services:
 
   # --- 网易云解灰代理 ---
   unblock-netease:
-    image: ${UNBLOCK_NETEASE_IMAGE:-ghcr.io/fenlynn/unblock-netease:enhanced}
+    image: pan93412/unblock-netease-music-enhanced:latest
     container_name: unblock-netease
     restart: unless-stopped
     environment:

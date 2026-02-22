@@ -27,13 +27,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 3. 拉取并中转 网易云解灰镜像
-        run: |
-          docker pull pan93412/unblock-netease-cloud-music:enhanced
-          docker tag pan93412/unblock-netease-cloud-music:enhanced ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/unblock-netease:enhanced
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/unblock-netease:enhanced
-
-      - name: 4. 拉取并中转 Kopia 镜像
+      - name: 3. 拉取并中转 Kopia 镜像
         run: |
           docker pull kopia/kopia:latest
           docker tag kopia/kopia:latest ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/kopia:latest
