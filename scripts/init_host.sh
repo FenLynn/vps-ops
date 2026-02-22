@@ -62,8 +62,8 @@ export NEEDRESTART_MODE=a
 export NEEDRESTART_SUSPEND=1
 # apt 静默冲突处理选项
 APT_FLAGS="-y \
-    -o Dpkg::Options::='--force-confdef' \
-    -o Dpkg::Options::='--force-confold' \
+    -o Dpkg::Options::=--force-confdef \
+    -o Dpkg::Options::=--force-confold \
     -o APT::Get::Assume-Yes=true \
     -o APT::Install-Recommends=false"
 
