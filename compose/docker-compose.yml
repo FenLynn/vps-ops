@@ -1,3 +1,4 @@
+
 # =============================================================================
 # VPS-OPS v2.0 — 统一服务编排文件
 # 所有服务在同一文件中管理，通过 depends_on 控制启动顺序
@@ -156,8 +157,8 @@ services:
     environment:
       # SQLite 模式：主库在 /data，日志库隔离到 /logs
       - DB_TYPE=sqlite
-      - SQL_DSN=
-      - LOG_SQL_DSN=/logs/api-log.db
+      #- SQL_DSN=/data/new-api.db
+      #- LOG_SQL_DSN=/logs/api-log.db
       - NODE_TYPE=master
       - CHANNEL_UPDATE_FREQUENCY=30
       - BATCH_UPDATE_ENABLED=true
@@ -169,6 +170,12 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"   # 单个日志文件最大 10MB
+        max-file: "3"     # 最多保留 3 个滚动文件
+
     networks:
       - vps_tunnel_net
     # 🚫 无端口暴露，通过 CF Tunnel 访问
@@ -178,6 +185,8 @@ services:
     image: ghcr.io/fenlynn/unblock-netease-music-enhanced:latest
     container_name: unblock-netease
     restart: unless-stopped
+#    command: ["-p", "8080", "-s", "-e"]   # 👈 必须补上这一行！(开启严格模式与前端端点模式)
+    command: ["-p", "8080:8081", "-e", "http://music-api:3000"]
     environment:
       - NODE_ENV=production
     networks:
@@ -331,6 +340,8 @@ services:
 networks:
   vps_tunnel_net:
     external: true
+    #name: vps_tunnel_net
+      #  driver: bridge
 
 # =============================================================================
 # 命名卷

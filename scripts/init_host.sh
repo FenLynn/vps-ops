@@ -435,18 +435,28 @@ chmod +x ${BASE_DIR}/scripts/*.sh
 
 # 用户预设 (vim/bashrc)
 USER_HOME="/home/${ADMIN_USER}"
-if [ -f "${PROJECT_DIR}/presets/.vimrc" ]; then
-    cp "${PROJECT_DIR}/presets/.vimrc" "${USER_HOME}/.vimrc"
-    chown ${ADMIN_USER}:${ADMIN_USER} "${USER_HOME}/.vimrc"
-    echo "  - .vimrc 已安装"
-fi
-if [ -f "${PROJECT_DIR}/presets/bashrc.append" ]; then
-    if ! grep -q "vps-ops Custom Bash Presets" "${USER_HOME}/.bashrc" 2>/dev/null; then
-        cat "${PROJECT_DIR}/presets/bashrc.append" >> "${USER_HOME}/.bashrc"
-        echo "  - bashrc 已追加"
+
+apply_user_presets() {
+    local target_home=$1
+    local target_user=$2
+    
+    if [ -f "${PROJECT_DIR}/presets/.vimrc" ]; then
+        cp -f "${PROJECT_DIR}/presets/.vimrc" "${target_home}/.vimrc"
+        chown ${target_user}:${target_user} "${target_home}/.vimrc"
+        echo "  - .vimrc 已安装给 ${target_user}"
     fi
-fi
-echo "  ✅ 目录与文件同步完成"
+
+    if [ -f "${PROJECT_DIR}/presets/bashrc.append" ]; then
+        if [ -f "${target_home}/.bashrc" ] && ! grep -q "vps-ops Custom Bash Presets" "${target_home}/.bashrc" 2>/dev/null; then
+            cat "${PROJECT_DIR}/presets/bashrc.append" >> "${target_home}/.bashrc"
+            echo "  - bashrc 已追加给 ${target_user}"
+        fi
+    fi
+}
+
+apply_user_presets "${USER_HOME}" "${ADMIN_USER}"
+apply_user_presets "/root" "root"
+echo "  ✅ 用户终端预设同步完成"
 
 # ─── [11/12] 安装 Tailscale ───────────────────────────────────────────────────
 echo ""
