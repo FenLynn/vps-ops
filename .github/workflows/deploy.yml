@@ -58,6 +58,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ─── 检查 Secrets 配置 ───
+      - name: 检查 Secrets 配置
+        run: |
+          MISSING_SECRETS=""
+          if [ -z "${{ secrets.VPS_HOST }}" ]; then MISSING_SECRETS="$MISSING_SECRETS VPS_HOST"; fi
+          if [ -z "${{ secrets.VPS_SSH_PRIVATE_KEY }}" ]; then MISSING_SECRETS="$MISSING_SECRETS VPS_SSH_PRIVATE_KEY"; fi
+          if [ -z "${{ secrets.VPS_ENV_CONTENT }}" ]; then MISSING_SECRETS="$MISSING_SECRETS VPS_ENV_CONTENT"; fi
+          
+          if [ -n "$MISSING_SECRETS" ]; then
+            echo "❌ 错误: 缺失以下必需的 GitHub Secrets:$MISSING_SECRETS"
+            echo "💡 请检查 GitHub 仓库的 Settings -> Environments -> ${{ github.event.inputs.target_env || 'Production' }} 是否创建且填入了 Secrets。"
+            echo "💡 如果没有使用 Environment，请确认 Repository Secrets 中是否包含上述变量。"
+            exit 1
+          fi
+          echo "✅ Secrets 配置自检通过"
+
       # ─── 配置 SSH 私钥 ───
       - name: 配置 SSH 私钥
         run: |
