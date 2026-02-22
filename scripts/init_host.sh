@@ -16,6 +16,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 source "${PROJECT_DIR}/config.ini"
 
+# 尝试加载 .env (如果存在)，以便获取 ADMIN_PASS, TAILSCALE_AUTH_KEY 等
+if [ -f "${PROJECT_DIR}/.env" ]; then
+    # 过滤掉注释并导出变量
+    export $(grep -v '^#' "${PROJECT_DIR}/.env" | xargs)
+fi
+
 # 核心路径
 BASE_DIR="${BASE_DIR:-/opt/vps-dmz}"
 
