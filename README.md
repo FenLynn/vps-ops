@@ -326,6 +326,10 @@ EOF
 
 # 重启 SSH（执行后当前 SSH 连接断开，需用端口 22222 重连）
 systemctl restart ssh
+
+# 锁定防火墙：禁止端口 22，仅允许 22222
+ufw deny 22/tcp
+ufw allow 22222/tcp
 ```
 
 ### 第二步：关闭云控制台端口 22

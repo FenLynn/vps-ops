@@ -318,7 +318,11 @@ echo "[7/12] 配置防火墙 ($FW_TOOL)..."
 if [ "$FW_TOOL" = "ufw" ]; then
     ufw default deny incoming
     ufw default allow outgoing
-    ufw allow ${SSH_PORT}/tcp    comment 'SSH'
+    # 同时放行默认 22 和自定义端口，防止初始化过程中失联
+    ufw allow 22/tcp             comment 'SSH-Default'
+    if [ "${SSH_PORT}" != "22" ]; then
+        ufw allow ${SSH_PORT}/tcp    comment 'SSH-Custom'
+    fi
     ufw allow ${DERP_PORT}/tcp   comment 'DERP relay'
     ufw allow ${DERP_STUN_PORT}/udp comment 'DERP STUN'
     ufw allow from 127.0.0.1
@@ -330,7 +334,10 @@ if [ "$FW_TOOL" = "ufw" ]; then
     fi
 elif [ "$FW_TOOL" = "firewalld" ]; then
     systemctl enable --now firewalld
-    firewall-cmd --permanent --add-port=${SSH_PORT}/tcp
+    firewall-cmd --permanent --add-port=22/tcp
+    if [ "${SSH_PORT}" != "22" ]; then
+        firewall-cmd --permanent --add-port=${SSH_PORT}/tcp
+    fi
     firewall-cmd --permanent --add-port=${DERP_PORT}/tcp
     firewall-cmd --permanent --add-port=${DERP_STUN_PORT}/udp
     firewall-cmd --reload
@@ -378,7 +385,7 @@ echo "[9/12] 配置 Fail2Ban..."
 cat > /etc/fail2ban/jail.local << EOF
 [sshd]
 enabled  = true
-port     = ${SSH_PORT}
+port     = 22,${SSH_PORT}
 filter   = sshd
 logpath  = ${AUTH_LOG}
 maxretry = 3
