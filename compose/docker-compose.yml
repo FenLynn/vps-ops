@@ -123,7 +123,7 @@ services:
 
   # --- DERP 中继节点 (唯一允许暴露端口的服务) ---
   derper:
-    image: fredliang/derper:latest
+    image: ghcr.io/fenlynn/derper:latest
     container_name: derper
     restart: unless-stopped
     ports:
@@ -175,7 +175,7 @@ services:
 
   # --- 网易云解灰代理 ---
   unblock-netease:
-    image: pan93412/unblock-netease-music-enhanced:latest
+    image: ghcr.io/fenlynn/unblock-netease-music-enhanced:latest
     container_name: unblock-netease
     restart: unless-stopped
     environment:

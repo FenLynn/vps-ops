@@ -27,21 +27,36 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 3. 拉取并中转 Kopia 镜像
+      - name: 3. 中转 Kopia 镜像
         run: |
           docker pull kopia/kopia:latest
           docker tag kopia/kopia:latest ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/kopia:latest
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/kopia:latest
 
-      - name: 4. 自动将容器镜像设为公开 (Public)
+      - name: 4. 中转 Unblock-Netease 镜像
+        run: |
+          docker pull pan93412/unblock-netease-music-enhanced:latest
+          docker tag pan93412/unblock-netease-music-enhanced:latest ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/unblock-netease-music-enhanced:latest
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/unblock-netease-music-enhanced:latest
+
+      - name: 5. 中转 Derper 镜像
+        run: |
+          docker pull fredliang/derper:latest
+          docker tag fredliang/derper:latest ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/derper:latest
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/derper:latest
+
+      - name: 6. 自动将容器镜像设为公开 (Public)
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           echo "🌐 正在将镜像可见性设置为公开..."
           # 注意：此操作需要 GH_TOKEN 具备 admin:packages 权限
-          gh api \
-            --method PATCH \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/user/packages/container/kopia/manage_visibility" \
-            -f visibility='public' || echo "⚠️ 自动设置公开权限失败，请检查 GH_TOKEN 权限是否包含 admin:packages"
+          for pkg in kopia unblock-netease-music-enhanced derper; do
+            echo "  - 设置 ${pkg} 为公开..."
+            gh api \
+              --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "/user/packages/container/${pkg}/manage_visibility" \
+              -f visibility='public' || echo "  ⚠️ ${pkg} 公开权限设置失败，请手动核实或确认 GH_TOKEN 权限"
+          done
