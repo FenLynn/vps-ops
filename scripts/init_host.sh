@@ -287,21 +287,22 @@ chmod 600 "${AUTH_FILE}" 2>/dev/null || true
 
 # ─── [6/12] SSH 加固 ──────────────────────────────────────────────────────────
 echo ""
-echo "[6/12] 加固 SSH..."
+echo "[6/12] 配置 SSH (启用公钥认证)..."
 
 # Ubuntu 24.04 的 sshd_config 可能使用 /etc/ssh/sshd_config.d/ Drop-in 方式
+# ⚠️  注意: 端口变更、PermitRootLogin、PasswordAuthentication 等高风险设置
+#    不在此自动化，请在所有服务就绪后手动执行 README 中的"安全加固命令"
 SSHD_DROPIN="/etc/ssh/sshd_config.d/99-vps-ops.conf"
 mkdir -p /etc/ssh/sshd_config.d
 cat > "${SSHD_DROPIN}" << EOF
-Port ${SSH_PORT}
-PermitRootLogin no
-PasswordAuthentication no
+# 启用公钥认证 (由 vps-ops init_host.sh 写入)
 PubkeyAuthentication yes
 AuthorizedKeysFile .ssh/authorized_keys
 X11Forwarding no
 EOF
 
-echo "  ✅ SSH 加固配置写入 ${SSHD_DROPIN}"
+echo "  ✅ SSH 公钥认证配置写入 ${SSHD_DROPIN}"
+echo "  ℹ️  端口/PermitRootLogin/PasswordAuthentication 请参考 README 手动加固"
 
 # SELinux 处理 (如有，通常只在 CentOS/RHEL 系上)
 if command -v getenforce &> /dev/null && [ "$(getenforce)" != "Disabled" ]; then
