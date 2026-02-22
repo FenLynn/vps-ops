@@ -48,7 +48,14 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v4
 
-      # ─── 安装 sshpass (用 root 密码登录，仅此一次) ───
+      # ─── 加载 SSH 私钥 (为已初始化的机器提供密钥认证支持) ───
+      - name: 加载 SSH 私钥
+        uses: webfactory/ssh-agent@v0.9.0
+        if: ${{ secrets.VPS_SSH_PRIVATE_KEY != '' }}
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+
+      # ─── 安装 sshpass (为新机器提供密码认证支持) ───
       - name: 安装 sshpass
         run: sudo apt-get install -y sshpass
 
@@ -79,7 +86,7 @@ jobs:
           echo "SSH_PORT=$DETECTED_PORT" >> $GITHUB_OUTPUT
           echo "✅ 目标 VPS: $VPS_IP (端口: $DETECTED_PORT)"
 
-      # ─── 第一步: 上传 SSH 公钥 (使用 root 密码) ───
+      # ─── 第一步: 上传 SSH 公钥 (使用 root 密码或密钥) ───
       - name: 上传 SSH 公钥到 VPS
         env:
           VPS_IP: ${{ steps.vars.outputs.VPS_IP }}
@@ -87,14 +94,16 @@ jobs:
           ROOT_PASS: ${{ secrets.VPS_ROOT_PASS }}
           SSH_PUBKEY: ${{ secrets.VPS_SSH_PUBKEY }}
         run: |
-          echo "📤 上传 SSH 公钥 (Port: $SSH_PORT)..."
+          echo "📤 尝试注入 SSH 公钥 (Port: $SSH_PORT)..."
+          # 策略：如果密钥已存在则直接成功，否则尝试用密码注入
           sshpass -p "$ROOT_PASS" ssh \
             -p "$SSH_PORT" \
             -o StrictHostKeyChecking=no \
-            -o ConnectTimeout=30 \
+            -o ConnectTimeout=15 \
+            -o PreferredAuthentications=publickey,password \
             root@$VPS_IP \
-            "mkdir -p /root/.ssh && echo '$SSH_PUBKEY' >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys"
-          echo "✅ SSH 公钥已上传"
+            "mkdir -p /root/.ssh && (grep -q '$SSH_PUBKEY' /root/.ssh/authorized_keys || echo '$SSH_PUBKEY' >> /root/.ssh/authorized_keys) && chmod 600 /root/.ssh/authorized_keys"
+          echo "✅ SSH 公钥已确认/并注入"
 
       # ─── 第二步: 同步仓库代码与 .env ───
       - name: 同步仓库代码与 .env
@@ -105,12 +114,10 @@ jobs:
           ENV_CONTENT: ${{ secrets.VPS_ENV_CONTENT }}
           SYNC_MODE: ${{ github.event.inputs.sync_mode }}
         run: |
-          SSH_OPTS="-p $SSH_PORT -o StrictHostKeyChecking=no"
+          SSH_OPTS="-p $SSH_PORT -o StrictHostKeyChecking=no -o PreferredAuthentications=publickey,password"
           if [ "$SYNC_MODE" = "ssh_push" ]; then
             echo "🚚 采用 SSH 推送模式 (SSH Push, Port: $SSH_PORT)..."
-            # 1. 确保目录存在
             sshpass -p "$ROOT_PASS" ssh $SSH_OPTS root@$VPS_IP "mkdir -p $DEPLOY_DIR"
-            # 2. 通过管道推送代码并解压 (排除 .git)
             tar -cz --exclude='.git' . | sshpass -p "$ROOT_PASS" ssh $SSH_OPTS root@$VPS_IP "tar -xz -C $DEPLOY_DIR"
           else
             echo "🤖 采用原生 Git 拉取模式 (Git Pull, Port: $SSH_PORT)..."
@@ -152,20 +159,17 @@ jobs:
           ROOT_PASS: ${{ secrets.VPS_ROOT_PASS }}
           SSH_PUBKEY: ${{ secrets.VPS_SSH_PUBKEY }}
         run: |
-          echo "🚀 开始全自动初始化 (约 5-10 分钟, Port: $SSH_PORT)..."
+          echo "🚀 开始全自动初始化 (Port: $SSH_PORT)..."
           sshpass -p "$ROOT_PASS" ssh \
             -p "$SSH_PORT" \
             -o StrictHostKeyChecking=no \
             -o ServerAliveInterval=60 \
+            -o PreferredAuthentications=publickey,password \
             root@$VPS_IP \
             "
             set -e
             cd $DEPLOY_DIR
-
-            # 将 Actions SSH 公钥也注入给 sudor 用户 (init_host.sh 会创建此用户)
             export INJECT_SSH_PUBKEY='$SSH_PUBKEY'
-
-            # 以非交互模式运行
             export NONINTERACTIVE=true
             bash scripts/init_host.sh
             "
@@ -179,11 +183,11 @@ jobs:
           ROOT_PASS: ${{ secrets.VPS_ROOT_PASS }}
         run: |
           echo "🔍 检查容器状态 (Port: $SSH_PORT)..."
-          sleep 15  # 等待容器启动
-
+          sleep 15
           sshpass -p "$ROOT_PASS" ssh \
             -p "$SSH_PORT" \
             -o StrictHostKeyChecking=no \
+            -o PreferredAuthentications=publickey,password \
             root@$VPS_IP \
             "docker ps --format 'table {{.Names}}\t{{.Status}}'"
 
