@@ -52,28 +52,44 @@ jobs:
       - name: 安装 sshpass
         run: sudo apt-get install -y sshpass
 
-      # ─── 确定目标 VPS IP ───
-      - name: 设置目标 IP
+      # ─── 确定目标 VPS IP 与 SSH 端口 (自适应探测) ───
+      - name: 环境探测
         id: vars
         run: |
           VPS_IP="${{ github.event.inputs.vps_host_override || secrets.VPS_HOST }}"
           if [ -z "$VPS_IP" ]; then
-            echo "❌ 错误: VPS IP 未提供 (inputs.vps_host_override 或 Secret VPS_HOST)"
+            echo "❌ 错误: VPS IP 未提供"
             exit 1
           fi
+          
+          echo "🔍 正在探测 SSH 端口..."
+          # 使用 nc 进行快速端口扫描 (超时 3s)
+          if nc -zw 3 "$VPS_IP" 22 2>/dev/null; then
+            DETECTED_PORT=22
+            echo "  📍 发现默认端口: 22"
+          elif nc -zw 3 "$VPS_IP" 22222 2>/dev/null; then
+            DETECTED_PORT=22222
+            echo "  📍 发现自定义端口: 22222"
+          else
+            DETECTED_PORT=22
+            echo "  ⚠️ 未发现开放端口，将回退到默认 22 尝试 (可能超时)"
+          fi
+
           echo "VPS_IP=$VPS_IP" >> $GITHUB_OUTPUT
-          echo "✅ 目标环境: ${{ github.event.inputs.target_env }}"
-          echo "✅ 目标 VPS: $VPS_IP"
+          echo "SSH_PORT=$DETECTED_PORT" >> $GITHUB_OUTPUT
+          echo "✅ 目标 VPS: $VPS_IP (端口: $DETECTED_PORT)"
 
       # ─── 第一步: 上传 SSH 公钥 (使用 root 密码) ───
       - name: 上传 SSH 公钥到 VPS
         env:
           VPS_IP: ${{ steps.vars.outputs.VPS_IP }}
+          SSH_PORT: ${{ steps.vars.outputs.SSH_PORT }}
           ROOT_PASS: ${{ secrets.VPS_ROOT_PASS }}
           SSH_PUBKEY: ${{ secrets.VPS_SSH_PUBKEY }}
         run: |
-          echo "📤 上传 SSH 公钥..."
+          echo "📤 上传 SSH 公钥 (Port: $SSH_PORT)..."
           sshpass -p "$ROOT_PASS" ssh \
+            -p "$SSH_PORT" \
             -o StrictHostKeyChecking=no \
             -o ConnectTimeout=30 \
             root@$VPS_IP \
@@ -84,20 +100,21 @@ jobs:
       - name: 同步仓库代码与 .env
         env:
           VPS_IP: ${{ steps.vars.outputs.VPS_IP }}
+          SSH_PORT: ${{ steps.vars.outputs.SSH_PORT }}
           ROOT_PASS: ${{ secrets.VPS_ROOT_PASS }}
           ENV_CONTENT: ${{ secrets.VPS_ENV_CONTENT }}
           SYNC_MODE: ${{ github.event.inputs.sync_mode }}
         run: |
+          SSH_OPTS="-p $SSH_PORT -o StrictHostKeyChecking=no"
           if [ "$SYNC_MODE" = "ssh_push" ]; then
-            echo "� 采用 SSH 推送模式 (SSH Push)..."
+            echo "🚚 采用 SSH 推送模式 (SSH Push, Port: $SSH_PORT)..."
             # 1. 确保目录存在
-            sshpass -p "$ROOT_PASS" ssh -o StrictHostKeyChecking=no root@$VPS_IP "mkdir -p $DEPLOY_DIR"
+            sshpass -p "$ROOT_PASS" ssh $SSH_OPTS root@$VPS_IP "mkdir -p $DEPLOY_DIR"
             # 2. 通过管道推送代码并解压 (排除 .git)
-            tar -cz --exclude='.git' . | sshpass -p "$ROOT_PASS" ssh -o StrictHostKeyChecking=no root@$VPS_IP "tar -xz -C $DEPLOY_DIR"
+            tar -cz --exclude='.git' . | sshpass -p "$ROOT_PASS" ssh $SSH_OPTS root@$VPS_IP "tar -xz -C $DEPLOY_DIR"
           else
-            echo "🤖 采用原生 Git 拉取模式 (Git Pull)..."
-            sshpass -p "$ROOT_PASS" ssh \
-              -o StrictHostKeyChecking=no \
+            echo "🤖 采用原生 Git 拉取模式 (Git Pull, Port: $SSH_PORT)..."
+            sshpass -p "$ROOT_PASS" ssh $SSH_OPTS \
               root@$VPS_IP \
               "
               set -e
@@ -118,8 +135,7 @@ jobs:
           fi
 
           echo "📝 注入 .env 文件..."
-          sshpass -p "$ROOT_PASS" ssh \
-            -o StrictHostKeyChecking=no \
+          sshpass -p "$ROOT_PASS" ssh $SSH_OPTS \
             root@$VPS_IP \
             "cat > $DEPLOY_DIR/.env << 'ENVEOF'
           $ENV_CONTENT
@@ -132,11 +148,13 @@ jobs:
       - name: 运行 init_host.sh (全自动初始化)
         env:
           VPS_IP: ${{ steps.vars.outputs.VPS_IP }}
+          SSH_PORT: ${{ steps.vars.outputs.SSH_PORT }}
           ROOT_PASS: ${{ secrets.VPS_ROOT_PASS }}
           SSH_PUBKEY: ${{ secrets.VPS_SSH_PUBKEY }}
         run: |
-          echo "🚀 开始全自动初始化 (约 5-10 分钟)..."
+          echo "🚀 开始全自动初始化 (约 5-10 分钟, Port: $SSH_PORT)..."
           sshpass -p "$ROOT_PASS" ssh \
+            -p "$SSH_PORT" \
             -o StrictHostKeyChecking=no \
             -o ServerAliveInterval=60 \
             root@$VPS_IP \
@@ -157,12 +175,14 @@ jobs:
       - name: 验证服务状态
         env:
           VPS_IP: ${{ steps.vars.outputs.VPS_IP }}
+          SSH_PORT: ${{ steps.vars.outputs.SSH_PORT }}
           ROOT_PASS: ${{ secrets.VPS_ROOT_PASS }}
         run: |
-          echo "🔍 检查容器状态..."
+          echo "🔍 检查容器状态 (Port: $SSH_PORT)..."
           sleep 15  # 等待容器启动
 
           sshpass -p "$ROOT_PASS" ssh \
+            -p "$SSH_PORT" \
             -o StrictHostKeyChecking=no \
             root@$VPS_IP \
             "docker ps --format 'table {{.Names}}\t{{.Status}}'"
@@ -170,5 +190,5 @@ jobs:
           echo ""
           echo "=========================================="
           echo "✅ Bootstrap 完成!"
-          echo "环境: ${{ github.event.inputs.target_env }}"
+          echo "环境: ${{ github.event.inputs.target_env }} (Detected Port: $SSH_PORT)"
           echo "=========================================="

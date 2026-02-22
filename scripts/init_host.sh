@@ -11,6 +11,15 @@
 # 重要: 不使用 set -e，以便在非致命错误后继续执行
 set -uo pipefail
 
+# ─── DNS 修复 (解决国内解析 I/O 超时) ──────────────────────────────────────────
+# 强制注入阿里云 DNS，防止 systemd-resolved 缓慢
+echo "正在优化 DNS 设置..."
+sed -i 's/^#DNS=/DNS=223.5.5.5 114.114.114.114/' /etc/systemd/resolved.conf 2>/dev/null || true
+systemctl restart systemd-resolved 2>/dev/null || true
+# 备份并强制设置临时 resolv.conf 以便立即生效
+cp /etc/resolv.conf /etc/resolv.conf.bak 2>/dev/null || true
+echo -e "nameserver 223.5.5.5\nnameserver 114.114.114.114" > /etc/resolv.conf
+
 # ─── 加载配置 ────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -156,6 +165,11 @@ echo "[4/12] 安装 Docker..."
 if ! command -v docker &> /dev/null; then
     DOCKER_INSTALLED=false
 
+    # 彻底清理可能导致冲突的旧源 (针对 Ubuntu 24.04 GPG 路径冲突优化)
+    echo "  - 预防性清理旧 Docker 源配置..."
+    rm -f /etc/apt/sources.list.d/docker*.list /etc/apt/keyrings/docker*
+    apt-get update -qq &>/dev/null || true
+
     # 优先方式: get.docker.com + 阿里云镜像
     echo "  - 尝试 get.docker.com (阿里云镜像加速)..."
     if curl --connect-timeout 15 --max-time 60 -fsSL "https://get.docker.com" -o /tmp/get-docker.sh; then
@@ -170,13 +184,15 @@ if ! command -v docker &> /dev/null; then
     if [ "$DOCKER_INSTALLED" = false ] && ([ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]); then
         echo "  - 备用: 阿里云 Docker CE apt 源..."
         install -m 0755 -d /etc/apt/keyrings
+        # 使用 --batch 模式防止交互式报错
         curl --connect-timeout 15 --max-time 60 -fsSL \
             "https://mirrors.aliyun.com/docker-ce/linux/ubuntu/gpg" \
-            | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            | gpg --batch --yes --dearmor -o /etc/apt/keyrings/docker.gpg
         chmod a+r /etc/apt/keyrings/docker.gpg
+        CODENAME=$(lsb_release -cs 2>/dev/null || echo "noble")
         echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
             https://mirrors.aliyun.com/docker-ce/linux/ubuntu \
-            $(lsb_release -cs) stable" \
+            ${CODENAME} stable" \
             > /etc/apt/sources.list.d/docker-aliyun.list
         apt-get update -qq
         apt-get install ${APT_FLAGS} docker-ce docker-ce-cli containerd.io docker-compose-plugin && \
@@ -194,13 +210,18 @@ fi
 # ─── Docker daemon.json 国内镜像加速 ──────────────────────────────────────────
 echo "  - 配置 Docker 镜像加速 (国内源)..."
 mkdir -p /etc/docker
-cat > /etc/docker/daemon.json << 'EOF'
+
+# 动态构建镜像列表，如果定义了 DOCKER_MIRROR 则置顶
+MIRRORS="\"https://docker.xuanyuan.me\", \"https://dockerproxy.cn\", \"https://docker.nju.edu.cn\""
+if [ -n "${DOCKER_MIRROR:-}" ]; then
+    echo "    📍 注入专属加速器: $DOCKER_MIRROR"
+    MIRRORS="\"$DOCKER_MIRROR\", $MIRRORS"
+fi
+
+cat > /etc/docker/daemon.json << EOF
 {
   "registry-mirrors": [
-    "https://docker.xuanyuan.me",
-    "https://docker.1ms.run",
-    "https://dockerproxy.cn",
-    "https://docker.nju.edu.cn",
+    $MIRRORS,
     "https://hub-mirror.c.163.com",
     "https://mirror.baidubce.com"
   ],
@@ -459,13 +480,17 @@ fi
 echo "  - 从 $DOTENV_PATH 加载密钥..."
 set -a; source "$DOTENV_PATH"; set +a
 
-# 链接 .env 到部署目录
-ln -sf "$(realpath $DOTENV_PATH)" "${BASE_DIR}/.env"
+# 链接 .env 到部署目录 (增加路径判断防止自链接警告)
+REAL_SRC="$(realpath "$DOTENV_PATH")"
+REAL_DEST="$(realpath "${BASE_DIR}/.env" 2>/dev/null || echo "${BASE_DIR}/.env")"
+if [ "$REAL_SRC" != "$REAL_DEST" ]; then
+    ln -sf "$REAL_SRC" "${BASE_DIR}/.env"
+fi
 
-# GHCR 登录 (homarr 等镜像来自 ghcr.io)
+# GHCR 登录 (仅在网络通畅时有效，报错不终止脚本)
 if [ -n "${GH_TOKEN:-}" ]; then
-    echo "  - 登录 ghcr.io..."
-    echo "$GH_TOKEN" | docker login ghcr.io -u "${ADMIN_USER:-FenLynn}" --password-stdin
+    echo "  - 尝试登录 ghcr.io (可能受网络限制，失败将跳过)..."
+    echo "$GH_TOKEN" | docker login ghcr.io -u "${ADMIN_USER:-FenLynn}" --password-stdin 2>/dev/null || echo "    ⚠️  ghcr.io 登录超时，将尝试直接从国内镜像拉取"
 fi
 
 # 创建 Docker 网络

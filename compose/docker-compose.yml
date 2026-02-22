@@ -313,7 +313,7 @@ services:
 
   # --- Homarr (导航仪表盘) ---
   homarr:
-    image: ghcr.io/ajnart/homarr:latest
+    image: ghcr.dockerproxy.com/ajnart/homarr:latest
     container_name: homarr
     restart: unless-stopped
     volumes:
