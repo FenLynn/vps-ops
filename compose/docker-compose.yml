@@ -223,6 +223,7 @@ services:
       context: ${BASE_DIR:-/opt/vps-dmz}/config/fastapi-gateway
       dockerfile: Dockerfile
     image: vps-ops/fastapi-gateway:latest
+    pull_policy: build
     container_name: fastapi-gateway
     restart: unless-stopped
     environment:

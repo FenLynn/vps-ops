@@ -173,8 +173,8 @@ jobs:
             cd $DEPLOY_DIR
             export INJECT_SSH_PUBKEY='$SSH_PUBKEY'
             export NONINTERACTIVE=true
-            export GH_TOKEN='$GH_TOKEN'
-            export GITHUB_USER='$GITHUB_USER'
+            export GH_TOKEN="${GH_TOKEN}"
+            export GITHUB_USER="${GITHUB_USER}"
             bash scripts/init_host.sh
             "
           echo "✅ 初始化完成!"
