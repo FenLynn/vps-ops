@@ -127,19 +127,33 @@ if ! id "${ADMIN_USER}" &>/dev/null; then
 fi
 
 # 迁移 SSH 密钥到 sudor 用户
-# 优先使用 INJECT_SSH_PUBKEY (来自 GitHub Actions bootstrap.yml)
-# 如果没有，则将 root 的现有 authorized_keys 复制迁移
+# 1. 优先使用 INJECT_SSH_PUBKEY (来自 GitHub Actions bootstrap.yml, 支持多行)
+# 2. 同时支持注入本地预设文件 (presets/authorized_keys)
+# 3. 如果都没有，则将 root 的现有 authorized_keys 复制迁移
 mkdir -p /home/${ADMIN_USER}/.ssh
+AUTH_FILE="/home/${ADMIN_USER}/.ssh/authorized_keys"
+
 if [ -n "${INJECT_SSH_PUBKEY:-}" ]; then
     echo "  - 从 GitHub Actions 注入 SSH 公钥到 ${ADMIN_USER}..."
-    echo "${INJECT_SSH_PUBKEY}" >> /home/${ADMIN_USER}/.ssh/authorized_keys
-elif [ -f /root/.ssh/authorized_keys ]; then
-    echo "  - 迁移 root 的 authorized_keys 到 ${ADMIN_USER}..."
-    cp /root/.ssh/authorized_keys /home/${ADMIN_USER}/.ssh/authorized_keys
+    echo "${INJECT_SSH_PUBKEY}" >> "${AUTH_FILE}"
 fi
+
+if [ -f "${PROJECT_DIR}/presets/authorized_keys" ]; then
+    echo "  - 从项目预设 (presets/authorized_keys) 注入 SSH 公钥..."
+    cat "${PROJECT_DIR}/presets/authorized_keys" >> "${AUTH_FILE}"
+fi
+
+# 如果还是空的且 root 有密钥，则迁移 root 的
+if [ ! -s "${AUTH_FILE}" ] && [ -f /root/.ssh/authorized_keys ]; then
+    echo "  - 迁移 root 的 authorized_keys 到 ${ADMIN_USER}..."
+    cp /root/.ssh/authorized_keys "${AUTH_FILE}"
+fi
+
+# 去重并修正权限
+sort -u "${AUTH_FILE}" -o "${AUTH_FILE}" 2>/dev/null || true
 chown -R ${ADMIN_USER}:${ADMIN_USER} /home/${ADMIN_USER}/.ssh
 chmod 700 /home/${ADMIN_USER}/.ssh
-chmod 600 /home/${ADMIN_USER}/.ssh/authorized_keys 2>/dev/null || true
+chmod 600 "${AUTH_FILE}" 2>/dev/null || true
 
 # ─── [5/10] SSH 加固 ─────────────────────────────────────────────────────────
 echo "[5/12] 加固 SSH..."
