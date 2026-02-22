@@ -43,6 +43,8 @@ jobs:
     timeout-minutes: 30
     # 🌟 关键：指定环境以读取对应的 Secrets
     environment: ${{ github.event.inputs.target_env }}
+    env:
+      SSH_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
 
     steps:
       - name: 检出代码
@@ -51,7 +53,7 @@ jobs:
       # ─── 加载 SSH 私钥 (为已初始化的机器提供密钥认证支持) ───
       - name: 加载 SSH 私钥
         uses: webfactory/ssh-agent@v0.9.0
-        if: ${{ secrets.VPS_SSH_PRIVATE_KEY != '' }}
+        if: ${{ env.SSH_KEY != '' }}
         with:
           ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
 
