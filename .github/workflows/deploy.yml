@@ -153,9 +153,9 @@ jobs:
             fi
 
             echo "🚀 更新服务..."
-            if [ -n "'"${{ secrets.GHCR_PAT }}"'" ]; then
+            if [ -n "'"${{ secrets.GH_TOKEN }}"'" ]; then
               echo "🔑 登录 GHCR..."
-              echo "'"${{ secrets.GHCR_PAT }}"'" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+              echo "'"${{ secrets.GH_TOKEN }}"'" | docker login ghcr.io -u ${{ github.repository_owner }} --password-stdin
             fi
             docker compose pull --quiet --ignore-pull-failures
             docker compose up -d --remove-orphans

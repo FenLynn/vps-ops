@@ -496,9 +496,9 @@ if [ "$REAL_SRC" != "$REAL_DEST" ]; then
 fi
 
 # GHCR 登录 (用于拉取私有 GitHub Packages)
-if [ -n "${GHCR_PAT:-}" ]; then
+if [ -n "${GH_TOKEN:-}" ]; then
     echo "  - [鉴权] 尝试登录 ghcr.io..."
-    echo "$GHCR_PAT" | docker login ghcr.io -u "${GITHUB_USER:-FenLynn}" --password-stdin 2>/dev/null || echo "    ⚠️  ghcr.io 登录失败，公共镜像不受影响"
+    echo "$GH_TOKEN" | docker login ghcr.io -u "${GITHUB_USER:-FenLynn}" --password-stdin 2>/dev/null || echo "    ⚠️  ghcr.io 登录失败，公共镜像不受影响"
 fi
 
 # 创建 Docker 网络
