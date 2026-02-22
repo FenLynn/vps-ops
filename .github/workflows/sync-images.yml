@@ -32,3 +32,16 @@ jobs:
           docker pull kopia/kopia:latest
           docker tag kopia/kopia:latest ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/kopia:latest
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/kopia:latest
+
+      - name: 4. 自动将容器镜像设为公开 (Public)
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          echo "🌐 正在将镜像可见性设置为公开..."
+          # 注意：此操作需要 GH_TOKEN 具备 admin:packages 权限
+          gh api \
+            --method PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/user/packages/container/kopia/manage_visibility" \
+            -f visibility='public' || echo "⚠️ 自动设置公开权限失败，请检查 GH_TOKEN 权限是否包含 admin:packages"
