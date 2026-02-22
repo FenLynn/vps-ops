@@ -308,28 +308,35 @@ docker compose up -d --force-recreate acme acme-init derper
 >
 > **为什么手动？** 锁端口/禁密码不可逆，操作前必须确认新的连接方式可用。
 
-### 第一步：SSH 策略锁定
+### 第一步：检查并确保 SSH 通道畅通
 
-在 VPS 上以 **root** 身份执行：
+初始化完成后，系统默认进入**宽松登录模式**（双端口、双用户、双认证）。如果你想核实或手动设置，请确保配置如下：
 
 ```bash
 sudo -i
 
 cat > /etc/ssh/sshd_config.d/99-vps-ops.conf << 'EOF'
+# 宽松模式认证：保持 22 和 22222 同时可用
+Port 22
 Port 22222
-PermitRootLogin no
-PasswordAuthentication no
+PermitRootLogin yes
+PasswordAuthentication yes
 PubkeyAuthentication yes
 AuthorizedKeysFile .ssh/authorized_keys
 X11Forwarding no
 EOF
 
-# 重启 SSH（执行后当前 SSH 连接断开，需用端口 22222 重连）
+# 重启 SSH 使得配置生效
 systemctl restart ssh
+```
 
-# 锁定防火墙：禁止端口 22，仅允许 22222
-ufw deny 22/tcp
+### 第二步：防火墙确认
+
+确保 UFW 放行了必要的端口：
+```bash
+ufw allow 22/tcp
 ufw allow 22222/tcp
+ufw --force enable
 ```
 
 ### 第二步：关闭云控制台端口 22

@@ -285,24 +285,30 @@ chown -R ${ADMIN_USER}:${ADMIN_USER} /home/${ADMIN_USER}/.ssh
 chmod 700 /home/${ADMIN_USER}/.ssh
 chmod 600 "${AUTH_FILE}" 2>/dev/null || true
 
-# ─── [6/12] SSH 加固 ──────────────────────────────────────────────────────────
+# ─── [6/12] SSH 宽松配置 (防登出) ────────────────────────────────────────────────
 echo ""
-echo "[6/12] 配置 SSH (启用公钥认证)..."
+echo "[6/12] 配置 SSH (宽松模式: 双端口、双用户、双认证)..."
 
 # Ubuntu 24.04 的 sshd_config 可能使用 /etc/ssh/sshd_config.d/ Drop-in 方式
-# ⚠️  注意: 端口变更、PermitRootLogin、PasswordAuthentication 等高风险设置
-#    不在此自动化，请在所有服务就绪后手动执行 README 中的"安全加固命令"
+# 配置双端口(22和自定义)，允许 Root 登录，允许密码和密钥登录
 SSHD_DROPIN="/etc/ssh/sshd_config.d/99-vps-ops.conf"
 mkdir -p /etc/ssh/sshd_config.d
 cat > "${SSHD_DROPIN}" << EOF
-# 启用公钥认证 (由 vps-ops init_host.sh 写入)
+# 宽松模式认证 (由 vps-ops init_host.sh 写入)
+Port 22
+Port ${SSH_PORT}
+PermitRootLogin yes
+PasswordAuthentication yes
 PubkeyAuthentication yes
 AuthorizedKeysFile .ssh/authorized_keys
 X11Forwarding no
 EOF
 
-echo "  ✅ SSH 公钥认证配置写入 ${SSHD_DROPIN}"
-echo "  ℹ️  端口/PermitRootLogin/PasswordAuthentication 请参考 README 手动加固"
+# 兼容老系统主配置，确保不被原先的阻挡
+sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || true
+sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || true
+
+echo "  ✅ SSH 宽松模式配置写入 ${SSHD_DROPIN} 及 /etc/ssh/sshd_config"
 
 # SELinux 处理 (如有，通常只在 CentOS/RHEL 系上)
 if command -v getenforce &> /dev/null && [ "$(getenforce)" != "Disabled" ]; then
