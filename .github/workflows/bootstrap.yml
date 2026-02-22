@@ -88,13 +88,22 @@ jobs:
             # 安装 git (如果没有)
             apt-get update -qq && apt-get install -y -qq git 2>/dev/null || yum install -y git 2>/dev/null
 
+            # 构建带鉴权或加速的 URL
+            if [ -n '${{ secrets.GH_TOKEN }}' ]; then
+              TARGET_URL='https://${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}.git'
+            else
+              TARGET_URL='https://github.com/${{ github.repository }}.git'
+            fi
+
             # 克隆或更新仓库
             if [ -d '$DEPLOY_DIR/.git' ]; then
-              echo '仓库已存在，执行 pull...'
-              cd $DEPLOY_DIR && git pull
+              echo '仓库已存在，配置远程地址并执行 pull...'
+              cd $DEPLOY_DIR
+              git remote set-url origin \$TARGET_URL
+              git pull
             else
               echo '克隆仓库...'
-              git clone $REPO_URL $DEPLOY_DIR
+              git clone \$TARGET_URL $DEPLOY_DIR
             fi
             "
 
