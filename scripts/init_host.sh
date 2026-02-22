@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 # =============================================================================
 # VPS-OPS v2.0 — 裸机初始化脚本 (Ubuntu 24.04 LTS 优化版)
 # 功能: OS 检测、apt 国内镜像换源、依赖安装、Docker 国内安装、用户创建、
@@ -212,10 +212,10 @@ echo "  - 配置 Docker 镜像加速 (国内源)..."
 mkdir -p /etc/docker
 
 # 动态构建镜像列表，如果定义了 DOCKER_MIRROR 则置顶
-MIRRORS="\"https://docker.xuanyuan.me\", \"https://dockerproxy.cn\", \"https://docker.nju.edu.cn\""
+MIRRORS="\"https://docker.m.daocloud.io\",\"https://docker.xuanyuan.me\", \"https://dockerproxy.cn\", \"https://docker.nju.edu.cn\""
 if [ -n "${DOCKER_MIRROR:-}" ]; then
     echo "    📍 注入专属加速器: $DOCKER_MIRROR"
-    MIRRORS="\"$DOCKER_MIRROR\", $MIRRORS"
+    MIRRORS="$MIRRORS, \"$DOCKER_MIRROR\""
 fi
 
 cat > /etc/docker/daemon.json << EOF
