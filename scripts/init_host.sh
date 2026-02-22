@@ -1,12 +1,15 @@
 ﻿#!/bin/bash
 # =============================================================================
-# VPS-OPS v2.0 — 裸机初始化脚本
-# 功能: OS 检测、依赖安装、Docker 配置、用户创建、SSH 加固、防火墙、
-#       BBR 加速、目录创建、Kopia 灾难恢复、一键启动全部服务
+# VPS-OPS v2.0 — 裸机初始化脚本 (Ubuntu 24.04 LTS 优化版)
+# 功能: OS 检测、apt 国内镜像换源、依赖安装、Docker 国内安装、用户创建、
+#       SSH 加固、防火墙、BBR 加速、目录创建、Tailscale、一键启动全部服务
+#
+# 网络策略: 全程优先使用国内镜像，规避 GFW 导致的拉取失败
 # 用法: sudo bash scripts/init_host.sh
 # =============================================================================
 
-set -e
+# 重要: 不使用 set -e，以便在非致命错误后继续执行
+set -uo pipefail
 
 # ─── 加载配置 ────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -16,12 +19,12 @@ source "${PROJECT_DIR}/config.ini"
 # 核心路径
 BASE_DIR="${BASE_DIR:-/opt/vps-dmz}"
 
-echo "=== VPS-OPS v2.0 裸机初始化 ==="
+echo "=== VPS-OPS v2.0 裸机初始化 (Ubuntu 24.04 优化) ==="
 echo "项目目录: ${PROJECT_DIR}"
 echo "部署目录: ${BASE_DIR}"
 echo "SSH 端口: ${SSH_PORT}"
 echo "Docker 网络: ${DOCKER_NET}"
-echo "=================================="
+echo "=============================================="
 
 # ─── 前置检查 ─────────────────────────────────────────────────────────────────
 if [ "$EUID" -ne 0 ]; then
@@ -29,37 +32,111 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# ─── [1/10] 操作系统检测 ─────────────────────────────────────────────────────
+# ─── [1/12] 操作系统检测 ──────────────────────────────────────────────────────
+echo ""
 echo "[1/12] 检测操作系统..."
 if [ -f /etc/os-release ]; then
     . /etc/os-release
     OS=$ID
     VER=$VERSION_ID
 else
-    echo "未知操作系统，使用通用逻辑"
-    OS="unknown"
+    echo "⚠️  未知操作系统，尝试 ubuntu 逻辑"
+    OS="ubuntu"
+    VER="24.04"
 fi
-echo "检测到: $OS ($VER)"
+echo "  ✅ 检测到: $OS $VER"
 
-# ─── [2/10] 安装依赖 ─────────────────────────────────────────────────────────
-echo "[2/12] 安装系统依赖..."
+# ─── [2/12] 全局非交互适配 + apt 换国内源 ─────────────────────────────────────
+echo ""
+echo "[2/12] 配置系统环境..."
+
+# 全局禁止所有交互式弹窗 (针对 Ubuntu 22.04/24.04)
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+export NEEDRESTART_SUSPEND=1
+# apt 静默冲突处理选项
+APT_FLAGS="-y \
+    -o Dpkg::Options::='--force-confdef' \
+    -o Dpkg::Options::='--force-confold' \
+    -o APT::Get::Assume-Yes=true \
+    -o APT::Install-Recommends=false"
+
+# needrestart 静默配置 (Ubuntu 22+)
+if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
+    mkdir -p /etc/needrestart/conf.d
+    cat > /etc/needrestart/conf.d/99-noninteractive.conf << 'EOF'
+# 全自动重启所有需要更新的服务，不询问
+$nrconf{restart} = 'a';
+$nrconf{kernelhints} = 0;
+EOF
+    echo "  ✅ needrestart 已设为静默模式"
+fi
+
+# ─── Ubuntu: 换阿里云国内源 ───────────────────────────────────────────────────
+if [ "$OS" = "ubuntu" ]; then
+    echo "  - 换 apt 源为阿里云镜像..."
+
+    # 备份原始 sources.list
+    cp /etc/apt/sources.list /etc/apt/sources.list.bak 2>/dev/null || true
+
+    # Ubuntu 24.04 (noble) 使用新的 DEB822 格式
+    if [ "$VER" = "24.04" ]; then
+        # 24.04 用 /etc/apt/sources.list.d/ubuntu.sources (DEB822 格式)
+        cat > /etc/apt/sources.list.d/ubuntu-cn.sources << 'EOF'
+Types: deb
+URIs: https://mirrors.aliyun.com/ubuntu
+Suites: noble noble-updates noble-backports
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+Types: deb
+URIs: https://mirrors.aliyun.com/ubuntu
+Suites: noble-security
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+EOF
+        # 禁用官方 sources 避免冲突，但保留 sources.list 作为备份
+        if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            mv /etc/apt/sources.list.d/ubuntu.sources \
+               /etc/apt/sources.list.d/ubuntu.sources.bak 2>/dev/null || true
+        fi
+        echo "  ✅ Ubuntu 24.04 apt 源已换为阿里云 (DEB822 格式)"
+    else
+        # Ubuntu 22.04 及更早版本
+        CODENAME=$(lsb_release -sc 2>/dev/null || echo "jammy")
+        cat > /etc/apt/sources.list << EOF
+deb https://mirrors.aliyun.com/ubuntu/ ${CODENAME} main restricted universe multiverse
+deb https://mirrors.aliyun.com/ubuntu/ ${CODENAME}-updates main restricted universe multiverse
+deb https://mirrors.aliyun.com/ubuntu/ ${CODENAME}-security main restricted universe multiverse
+deb https://mirrors.aliyun.com/ubuntu/ ${CODENAME}-backports main restricted universe multiverse
+EOF
+        echo "  ✅ Ubuntu ${VER} apt 源已换为阿里云 (传统格式)"
+    fi
+fi
+
+# ─── [3/12] 安装系统依赖 ──────────────────────────────────────────────────────
+echo ""
+echo "[3/12] 安装系统依赖..."
 case "$OS" in
     ubuntu|debian)
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update && apt-get install -y \
-            curl wget git ufw fail2ban \
+        apt-get update -qq
+        apt-get install ${APT_FLAGS} \
+            curl wget git vim ufw fail2ban \
             uidmap slirp4netns unattended-upgrades \
-            ca-certificates gnupg lsb-release jq
+            ca-certificates gnupg lsb-release jq \
+            cron apt-transport-https software-properties-common
         FW_TOOL="ufw"
         AUTH_LOG="/var/log/auth.log"
+        echo "  ✅ 系统依赖安装完成"
         ;;
     centos|rhel|almalinux|rocky|alinux)
         yum install -y epel-release
         yum makecache && yum install -y \
-            curl wget git firewalld fail2ban \
-            ca-certificates gnupg2 jq
+            curl wget git vim firewalld fail2ban \
+            ca-certificates gnupg2 jq cronie
         FW_TOOL="firewalld"
         AUTH_LOG="/var/log/secure"
+        echo "  ✅ 系统依赖安装完成"
         ;;
     *)
         echo "❌ 不支持的操作系统: $OS"
@@ -67,51 +144,75 @@ case "$OS" in
         ;;
 esac
 
-# ─── [3/10] 安装 Docker ─────────────────────────────────────────────────────
-echo "[3/12] 配置 Docker..."
+# ─── [4/12] 安装 Docker (国内源优先) ─────────────────────────────────────────
+echo ""
+echo "[4/12] 安装 Docker..."
 if ! command -v docker &> /dev/null; then
-    echo "安装 Docker..."
-    INSTALL_SUCCESS=false
-    for SCR_URL in "https://get.docker.com" "https://test.docker.com"; do
-        echo "尝试: ${SCR_URL}..."
-        if curl -fsSL "$SCR_URL" -o get-docker.sh && sh get-docker.sh --mirror Aliyun; then
-            INSTALL_SUCCESS=true
-            rm -f get-docker.sh
-            break
-        fi
-    done
+    DOCKER_INSTALLED=false
 
-    if [ "$INSTALL_SUCCESS" = false ]; then
-        # 备用: 阿里云源
-        curl -fsSL http://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo -o /etc/yum.repos.d/docker-ce.repo 2>/dev/null || true
-        yum install -y docker-ce docker-ce-cli containerd.io 2>/dev/null || \
-        apt-get install -y docker-ce docker-ce-cli containerd.io 2>/dev/null || {
-            echo "❌ Docker 安装失败，请手动安装"
-            exit 1
-        }
+    # 优先方式: get.docker.com + 阿里云镜像
+    echo "  - 尝试 get.docker.com (阿里云镜像加速)..."
+    if curl --connect-timeout 15 --max-time 60 -fsSL "https://get.docker.com" -o /tmp/get-docker.sh; then
+        if sh /tmp/get-docker.sh --mirror Aliyun; then
+            DOCKER_INSTALLED=true
+            echo "  ✅ Docker 安装成功 (via get.docker.com + 阿里云)"
+        fi
+        rm -f /tmp/get-docker.sh
     fi
+
+    # 备用方式: 直接添加阿里云 Docker CE repo
+    if [ "$DOCKER_INSTALLED" = false ] && ([ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]); then
+        echo "  - 备用: 阿里云 Docker CE apt 源..."
+        install -m 0755 -d /etc/apt/keyrings
+        curl --connect-timeout 15 --max-time 60 -fsSL \
+            "https://mirrors.aliyun.com/docker-ce/linux/ubuntu/gpg" \
+            | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        chmod a+r /etc/apt/keyrings/docker.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+            https://mirrors.aliyun.com/docker-ce/linux/ubuntu \
+            $(lsb_release -cs) stable" \
+            > /etc/apt/sources.list.d/docker-aliyun.list
+        apt-get update -qq
+        apt-get install ${APT_FLAGS} docker-ce docker-ce-cli containerd.io docker-compose-plugin && \
+            DOCKER_INSTALLED=true && echo "  ✅ Docker 安装成功 (via 阿里云 apt)"
+    fi
+
+    if [ "$DOCKER_INSTALLED" = false ]; then
+        echo "❌ Docker 安装失败，请手动安装"
+        exit 1
+    fi
+else
+    echo "  ✅ Docker 已安装: $(docker --version)"
 fi
 
-# Docker 镜像加速
+# ─── Docker daemon.json 国内镜像加速 ──────────────────────────────────────────
+echo "  - 配置 Docker 镜像加速 (国内源)..."
 mkdir -p /etc/docker
-cat > /etc/docker/daemon.json <<EOF
+cat > /etc/docker/daemon.json << 'EOF'
 {
   "registry-mirrors": [
     "https://docker.xuanyuan.me",
     "https://docker.1ms.run",
     "https://dockerproxy.cn",
-    "https://docker.nju.edu.cn"
+    "https://docker.nju.edu.cn",
+    "https://hub-mirror.c.163.com",
+    "https://mirror.baidubce.com"
   ],
   "log-driver": "json-file",
-  "log-opts": { "max-size": "10m", "max-file": "3" }
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
 }
 EOF
 systemctl daemon-reload
 systemctl enable --now docker
 systemctl restart docker
+echo "  ✅ Docker daemon 国内镜像加速已配置"
 
-# ─── [4/10] 创建管理用户 ─────────────────────────────────────────────────────
-echo "[4/12] 创建用户 '${ADMIN_USER}'..."
+# ─── [5/12] 创建管理用户 ──────────────────────────────────────────────────────
+echo ""
+echo "[5/12] 创建用户 '${ADMIN_USER}'..."
 if ! id "${ADMIN_USER}" &>/dev/null; then
     useradd -m -s /bin/bash ${ADMIN_USER}
     if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
@@ -119,33 +220,35 @@ if ! id "${ADMIN_USER}" &>/dev/null; then
     else
         usermod -aG wheel,docker ${ADMIN_USER}
     fi
-    echo "${ADMIN_USER} 已创建"
-
     # 免密 sudo
     mkdir -p /etc/sudoers.d
     echo "${ADMIN_USER} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-vps-ops-user
+    echo "  ✅ 用户 ${ADMIN_USER} 已创建"
+else
+    # 确保已加入 docker 组
+    usermod -aG docker ${ADMIN_USER} 2>/dev/null || true
+    echo "  ✅ 用户 ${ADMIN_USER} 已存在"
 fi
 
-# 迁移 SSH 密钥到 sudor 用户
-# 1. 优先使用 INJECT_SSH_PUBKEY (来自 GitHub Actions bootstrap.yml, 支持多行)
-# 2. 同时支持注入本地预设文件 (presets/authorized_keys)
-# 3. 如果都没有，则将 root 的现有 authorized_keys 复制迁移
+# 迁移 SSH 密钥 (三源汇聚: Secrets / presets / root 迁移)
 mkdir -p /home/${ADMIN_USER}/.ssh
 AUTH_FILE="/home/${ADMIN_USER}/.ssh/authorized_keys"
 
 if [ -n "${INJECT_SSH_PUBKEY:-}" ]; then
-    echo "  - 从 GitHub Actions 注入 SSH 公钥到 ${ADMIN_USER}..."
+    echo "  - 从 GitHub Actions 注入 SSH 公钥..."
     echo "${INJECT_SSH_PUBKEY}" >> "${AUTH_FILE}"
 fi
 
 if [ -f "${PROJECT_DIR}/presets/authorized_keys" ]; then
-    echo "  - 从项目预设 (presets/authorized_keys) 注入 SSH 公钥..."
-    cat "${PROJECT_DIR}/presets/authorized_keys" >> "${AUTH_FILE}"
+    # 过滤掉注释行，只注入真实公钥
+    grep -v '^\s*#' "${PROJECT_DIR}/presets/authorized_keys" | \
+        grep -v '^\s*$' >> "${AUTH_FILE}" || true
+    echo "  - 从 presets/authorized_keys 注入 SSH 公钥..."
 fi
 
 # 如果还是空的且 root 有密钥，则迁移 root 的
 if [ ! -s "${AUTH_FILE}" ] && [ -f /root/.ssh/authorized_keys ]; then
-    echo "  - 迁移 root 的 authorized_keys 到 ${ADMIN_USER}..."
+    echo "  - 迁移 root 的 authorized_keys..."
     cp /root/.ssh/authorized_keys "${AUTH_FILE}"
 fi
 
@@ -155,15 +258,25 @@ chown -R ${ADMIN_USER}:${ADMIN_USER} /home/${ADMIN_USER}/.ssh
 chmod 700 /home/${ADMIN_USER}/.ssh
 chmod 600 "${AUTH_FILE}" 2>/dev/null || true
 
-# ─── [5/10] SSH 加固 ─────────────────────────────────────────────────────────
-echo "[5/12] 加固 SSH..."
-sed -i -E "s/^#?Port [0-9]+/Port ${SSH_PORT}/" /etc/ssh/sshd_config
-sed -i 's/^PermitRootLogin yes/PermitRootLogin no/g' /etc/ssh/sshd_config
-sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/g' /etc/ssh/sshd_config
-sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
-sed -i 's/^PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
+# ─── [6/12] SSH 加固 ──────────────────────────────────────────────────────────
+echo ""
+echo "[6/12] 加固 SSH..."
 
-# SELinux 处理
+# Ubuntu 24.04 的 sshd_config 可能使用 /etc/ssh/sshd_config.d/ Drop-in 方式
+SSHD_DROPIN="/etc/ssh/sshd_config.d/99-vps-ops.conf"
+mkdir -p /etc/ssh/sshd_config.d
+cat > "${SSHD_DROPIN}" << EOF
+Port ${SSH_PORT}
+PermitRootLogin no
+PasswordAuthentication no
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+X11Forwarding no
+EOF
+
+echo "  ✅ SSH 加固配置写入 ${SSHD_DROPIN}"
+
+# SELinux 处理 (如有，通常只在 CentOS/RHEL 系上)
 if command -v getenforce &> /dev/null && [ "$(getenforce)" != "Disabled" ]; then
     echo "  - SELinux: 添加端口 ${SSH_PORT}..."
     yum install -y policycoreutils-python-utils &>/dev/null || true
@@ -171,23 +284,21 @@ if command -v getenforce &> /dev/null && [ "$(getenforce)" != "Disabled" ]; then
         semanage port -m -t ssh_port_t -p tcp ${SSH_PORT} 2>/dev/null || true
 fi
 
-mkdir -p /var/run/sshd
-
-# ─── [6/10] 防火墙配置 ───────────────────────────────────────────────────────
-echo "[6/12] 配置防火墙 ($FW_TOOL)..."
+# ─── [7/12] 防火墙配置 ────────────────────────────────────────────────────────
+echo ""
+echo "[7/12] 配置防火墙 ($FW_TOOL)..."
 if [ "$FW_TOOL" = "ufw" ]; then
     ufw default deny incoming
     ufw default allow outgoing
-    ufw allow ${SSH_PORT}/tcp
-    ufw allow ${DERP_PORT}/tcp
-    ufw allow ${DERP_STUN_PORT}/udp
+    ufw allow ${SSH_PORT}/tcp    comment 'SSH'
+    ufw allow ${DERP_PORT}/tcp   comment 'DERP relay'
+    ufw allow ${DERP_STUN_PORT}/udp comment 'DERP STUN'
     ufw allow from 127.0.0.1
-    # GitOps/NONINTERACTIVE 模式下自动开启 UFW
     if [ "${NONINTERACTIVE:-false}" = "true" ]; then
         ufw --force enable
-        echo "  - UFW 已自动启用 (NONINTERACTIVE 模式)"
+        echo "  ✅ UFW 已自动启用"
     else
-        echo "  - UFW 规则已写入。请手动执行: ufw --force enable"
+        echo "  ✅ UFW 规则已写入，请手动执行: ufw --force enable"
     fi
 elif [ "$FW_TOOL" = "firewalld" ]; then
     systemctl enable --now firewalld
@@ -195,78 +306,93 @@ elif [ "$FW_TOOL" = "firewalld" ]; then
     firewall-cmd --permanent --add-port=${DERP_PORT}/tcp
     firewall-cmd --permanent --add-port=${DERP_STUN_PORT}/udp
     firewall-cmd --reload
+    echo "  ✅ firewalld 配置完成"
 fi
 
-# ─── [7/10] 性能优化 ─────────────────────────────────────────────────────────
-echo "[7/12] 性能优化..."
+# ─── [8/12] 性能优化 ──────────────────────────────────────────────────────────
+echo ""
+echo "[8/12] 性能优化..."
 
-# Swap (2G)
+# Swap 2G (针对 2C2G 低配 VPS)
 if [ ! -f /swapfile ] && [ ! -b /dev/vdb1 ]; then
-    fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+    echo "  - 创建 2G Swap..."
+    fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none
     chmod 600 /swapfile
-    mkswap /swapfile
+    mkswap /swapfile -q
     swapon /swapfile
     grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    # 优化 swappiness (减少 swap 使用频率)
+    grep -q 'vm.swappiness' /etc/sysctl.conf || echo 'vm.swappiness=10' >> /etc/sysctl.conf
+    echo "  ✅ Swap 2G 已创建"
 fi
 
-# BBR
+# BBR 拥塞控制 (Ubuntu 24.04 内核默认已支持)
 if ! sysctl net.ipv4.tcp_congestion_control 2>/dev/null | grep -q "bbr"; then
-    grep -q "net.core.default_qdisc=fq" /etc/sysctl.conf || echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
-    grep -q "net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf || echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
-    sysctl -p
+    grep -q "net.core.default_qdisc=fq" /etc/sysctl.conf || \
+        echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+    grep -q "net.ipv4.tcp_congestion_control=bbr" /etc/sysctl.conf || \
+        echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+    sysctl -p -q 2>/dev/null || true
+    echo "  ✅ BBR 已启用"
 fi
 
-# lazydocker (可选)
+# lazydocker (通过 gh-proxy 代理访问 GitHub)
 if ! command -v lazydocker &> /dev/null; then
-    echo "  - 安装 lazydocker..."
-    curl --connect-timeout 10 --max-time 60 -fsSL \
-        https://gh-proxy.com/https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh \
-        | bash || echo "  ⚠️ lazydocker 安装跳过"
+    echo "  - 安装 lazydocker (via gh-proxy)..."
+    curl --connect-timeout 15 --max-time 90 -fsSL \
+        "https://gh-proxy.com/https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh" \
+        | bash 2>/dev/null || echo "  ⚠️  lazydocker 安装跳过 (可后续手动安装)"
 fi
 
-# ─── [8/10] Fail2Ban ─────────────────────────────────────────────────────────
-echo "[8/12] 配置 Fail2Ban..."
-cat > /etc/fail2ban/jail.local <<EOF
+# ─── [9/12] Fail2Ban ──────────────────────────────────────────────────────────
+echo ""
+echo "[9/12] 配置 Fail2Ban..."
+cat > /etc/fail2ban/jail.local << EOF
 [sshd]
-enabled = true
-port = ${SSH_PORT}
-filter = sshd
-logpath = ${AUTH_LOG}
+enabled  = true
+port     = ${SSH_PORT}
+filter   = sshd
+logpath  = ${AUTH_LOG}
 maxretry = 3
-bantime = 86400
+bantime  = 86400
+findtime = 600
 EOF
-systemctl enable --now fail2ban
-systemctl restart fail2ban
+systemctl enable --now fail2ban 2>/dev/null || true
+systemctl restart fail2ban 2>/dev/null || true
+echo "  ✅ Fail2Ban 已配置 (SSH 端口: ${SSH_PORT}, maxretry: 3)"
 
-# ─── [9/10] 创建部署目录 ─────────────────────────────────────────────────────
-echo "[9/12] 创建目录结构: ${BASE_DIR}..."
+# ─── [10/12] 创建目录结构 & 同步文件 ─────────────────────────────────────────
+echo ""
+echo "[10/12] 创建目录结构: ${BASE_DIR}..."
 
-# 核心四维目录
-mkdir -p ${BASE_DIR}/data/acme
-mkdir -p ${BASE_DIR}/data/new-api
-mkdir -p ${BASE_DIR}/data/uptime-kuma
-mkdir -p ${BASE_DIR}/data/kopia-cache
-mkdir -p ${BASE_DIR}/data/dockge
-mkdir -p ${BASE_DIR}/data/homarr/configs
-mkdir -p ${BASE_DIR}/data/homarr/icons
-mkdir -p ${BASE_DIR}/logs/new-api
-mkdir -p ${BASE_DIR}/logs/nginx
-mkdir -p ${BASE_DIR}/config/nginx-relay
-mkdir -p ${BASE_DIR}/config/fastapi-gateway
-mkdir -p ${BASE_DIR}/scripts
+mkdir -p \
+    ${BASE_DIR}/data/acme \
+    ${BASE_DIR}/data/new-api \
+    ${BASE_DIR}/data/uptime-kuma \
+    ${BASE_DIR}/data/kopia-cache \
+    ${BASE_DIR}/data/dockge \
+    ${BASE_DIR}/data/homarr/configs \
+    ${BASE_DIR}/data/homarr/icons \
+    ${BASE_DIR}/logs/new-api \
+    ${BASE_DIR}/logs/nginx \
+    ${BASE_DIR}/config/nginx-relay \
+    ${BASE_DIR}/config/fastapi-gateway \
+    ${BASE_DIR}/scripts
 
 # 权限修正 (部分容器以 UID 1000 运行)
 chown -R 1000:1000 ${BASE_DIR}/data ${BASE_DIR}/logs
 
-# 将仓库内容同步到部署目录
+# 同步项目文件
 echo "  - 同步项目文件..."
 cp -f ${PROJECT_DIR}/compose/docker-compose.yml ${BASE_DIR}/docker-compose.yml
-cp -f ${PROJECT_DIR}/config/nginx-relay/nginx.conf ${BASE_DIR}/config/nginx-relay/nginx.conf 2>/dev/null || true
-cp -rf ${PROJECT_DIR}/config/fastapi-gateway/* ${BASE_DIR}/config/fastapi-gateway/ 2>/dev/null || true
+cp -f ${PROJECT_DIR}/config/nginx-relay/nginx.conf \
+      ${BASE_DIR}/config/nginx-relay/nginx.conf 2>/dev/null || true
+cp -rf ${PROJECT_DIR}/config/fastapi-gateway/* \
+       ${BASE_DIR}/config/fastapi-gateway/ 2>/dev/null || true
 cp -f ${PROJECT_DIR}/scripts/*.sh ${BASE_DIR}/scripts/
 chmod +x ${BASE_DIR}/scripts/*.sh
 
-# 用户预设
+# 用户预设 (vim/bashrc)
 USER_HOME="/home/${ADMIN_USER}"
 if [ -f "${PROJECT_DIR}/presets/.vimrc" ]; then
     cp "${PROJECT_DIR}/presets/.vimrc" "${USER_HOME}/.vimrc"
@@ -279,12 +405,15 @@ if [ -f "${PROJECT_DIR}/presets/bashrc.append" ]; then
         echo "  - bashrc 已追加"
     fi
 fi
+echo "  ✅ 目录与文件同步完成"
 
-# ─── [10/12] 安装 Tailscale ──────────────────────────────────────────────────
-echo "[10/12] 配置 Tailscale..."
+# ─── [11/12] 安装 Tailscale ───────────────────────────────────────────────────
+echo ""
+echo "[11/12] 配置 Tailscale..."
 if ! command -v tailscale &> /dev/null; then
     echo "  - 安装 Tailscale..."
-    curl -fsSL https://tailscale.com/install.sh | sh
+    # tailscale 官方脚本会自动使用正确的包源，对 Ubuntu 友好
+    curl --connect-timeout 20 --max-time 120 -fsSL https://tailscale.com/install.sh | sh
 fi
 
 # 确保 tailscaled 正在运行
@@ -294,18 +423,18 @@ systemctl enable --now tailscaled 2>/dev/null || true
 if [ -n "${TAILSCALE_AUTH_KEY:-}" ]; then
     echo "  - 自动加入 Tailscale 网络..."
     tailscale up --authkey="${TAILSCALE_AUTH_KEY}" --accept-routes 2>/dev/null || {
-        # 可能已经登录过了
-        echo "  ⚠️ tailscale up 失败 (可能已加入网络)"
+        echo "  ⚠️  tailscale up 可能已加入网络"
         tailscale status || true
     }
 elif ! tailscale status &>/dev/null; then
-    echo "  ⚠️ 警告: TAILSCALE_AUTH_KEY 未设置且尚未登录 Tailscale!"
-    echo "     DERP --verify-clients 和 nginx-relay 需要 Tailscale。"
+    echo "  ⚠️  警告: TAILSCALE_AUTH_KEY 未设置！"
+    echo "     DERP --verify-clients 和 nginx-relay 需要 Tailscale"
     echo "     请手动执行: tailscale up"
 fi
 
-# ─── [11/12] 加载 .env 并启动 ────────────────────────────────────────────────
-echo "[11/12] 加载环境变量并启动服务..."
+# ─── [12/12] 加载 .env 并启动服务 ────────────────────────────────────────────
+echo ""
+echo "[12/12] 加载环境变量并启动服务..."
 
 # 查找 .env
 DOTENV_PATH=""
@@ -317,40 +446,39 @@ fi
 
 if [ -z "$DOTENV_PATH" ]; then
     echo "❌ 错误: 未找到 .env 文件!"
-    echo "请先执行: cp .env.example .env && nano .env"
+    echo "   请先执行: cp .env.example .env && nano .env"
     exit 1
 fi
 
 echo "  - 从 $DOTENV_PATH 加载密钥..."
-set -a
-source "$DOTENV_PATH"
-set +a
+set -a; source "$DOTENV_PATH"; set +a
 
 # 链接 .env 到部署目录
 ln -sf "$(realpath $DOTENV_PATH)" "${BASE_DIR}/.env"
 
-# GHCR 登录
-if [ -n "$GH_TOKEN" ]; then
+# GHCR 登录 (homarr 等镜像来自 ghcr.io)
+if [ -n "${GH_TOKEN:-}" ]; then
     echo "  - 登录 ghcr.io..."
-    echo "$GH_TOKEN" | docker login ghcr.io -u ${ADMIN_USER:-FenLynn} --password-stdin
+    echo "$GH_TOKEN" | docker login ghcr.io -u "${ADMIN_USER:-FenLynn}" --password-stdin
 fi
 
 # 创建 Docker 网络
 docker network create ${DOCKER_NET:-vps_tunnel_net} 2>/dev/null || true
 
-# SSH 重启
+# SSH 重启 (使用 Drop-in 配置，需重启生效)
 echo "  - 重启 SSH..."
 if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
-    systemctl restart ssh || service ssh restart
+    systemctl restart ssh 2>/dev/null || service ssh restart 2>/dev/null || true
 else
-    systemctl restart sshd
+    systemctl restart sshd 2>/dev/null || true
 fi
 
-# 设置定时任务
+# 设置 crontab
 echo "  - 安装 crontab..."
 CRON_BACKUP="0 3 * * * ${BASE_DIR}/scripts/backup_kopia.sh >> ${BASE_DIR}/logs/backup.log 2>&1"
 CRON_PRUNE="0 4 * * * ${BASE_DIR}/scripts/prune.sh >> ${BASE_DIR}/logs/prune.log 2>&1"
-(crontab -l 2>/dev/null | grep -v "backup_kopia.sh" | grep -v "prune.sh"; echo "$CRON_BACKUP"; echo "$CRON_PRUNE") | crontab -
+(crontab -l 2>/dev/null | grep -v "backup_kopia.sh" | grep -v "prune.sh"; \
+ echo "$CRON_BACKUP"; echo "$CRON_PRUNE") | crontab -
 
 # 构建 FastAPI 网关镜像 (如果 Dockerfile 存在)
 if [ -f "${BASE_DIR}/config/fastapi-gateway/Dockerfile" ]; then
@@ -358,22 +486,24 @@ if [ -f "${BASE_DIR}/config/fastapi-gateway/Dockerfile" ]; then
     docker build -t vps-ops/fastapi-gateway:latest ${BASE_DIR}/config/fastapi-gateway/
 fi
 
-# ─── [12/12] 启动全部服务 ─────────────────────────────────────────────────────
+# 🚀 启动全部服务
 echo ""
-echo "🚀 [12/12] 启动全部服务..."
+echo "🚀 启动全部 Docker 服务..."
 cd ${BASE_DIR}
+# 拉取镜像时通过 daemon.json 中的国内源加速
 docker compose pull --ignore-pull-failures
 docker compose up -d
 
 echo ""
-echo "=========================================="
+echo "=============================================="
 echo "✅ VPS-OPS v2.0 部署完成!"
-echo "=========================================="
-echo "SSH 端口: ${SSH_PORT}"
+echo "=============================================="
+echo "SSH 端口: ${SSH_PORT}  (提醒: 在云控制台开放此端口)"
 echo "部署目录: ${BASE_DIR}"
 echo ""
-echo "⚠️ 重要提醒:"
-echo "  1. 在云控制台防火墙开放端口 ${SSH_PORT}/TCP"
+echo "⚠️  重要提醒:"
+echo "  1. 在云控制台防火墙开放端口 ${SSH_PORT}/TCP 和 ${DERP_PORT}/TCP"
 echo "  2. 去 Cloudflare Zero Trust 配置 Tunnel 路由"
 echo "  3. 查看容器状态: docker ps"
-echo "=========================================="
+echo "  4. 现在可以用 SSH 私钥从端口 ${SSH_PORT} 连接 ${ADMIN_USER}@VPS_IP"
+echo "=============================================="
