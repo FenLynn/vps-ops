@@ -19,6 +19,14 @@ on:
         required: true
         default: "Production"
         type: string
+      sync_mode:
+        description: "同步模式 (git_pull: 原生拉取, ssh_push: SSH 推送救急)"
+        required: true
+        default: "git_pull"
+        type: choice
+        options:
+          - git_pull
+          - ssh_push
       vps_host_override:
         description: "临时覆盖 VPS IP (可选)"
         required: false
@@ -72,43 +80,44 @@ jobs:
             "mkdir -p /root/.ssh && echo '$SSH_PUBKEY' >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys"
           echo "✅ SSH 公钥已上传"
 
-      # ─── 第二步: 克隆仓库并注入 .env ───
-      - name: 部署仓库和 .env 到 VPS
+      # ─── 第二步: 同步仓库代码与 .env ───
+      - name: 同步仓库代码与 .env
         env:
           VPS_IP: ${{ steps.vars.outputs.VPS_IP }}
           ROOT_PASS: ${{ secrets.VPS_ROOT_PASS }}
           ENV_CONTENT: ${{ secrets.VPS_ENV_CONTENT }}
+          SYNC_MODE: ${{ github.event.inputs.sync_mode }}
         run: |
-          echo "📦 克隆仓库到 VPS..."
-          sshpass -p "$ROOT_PASS" ssh \
-            -o StrictHostKeyChecking=no \
-            root@$VPS_IP \
-            "
-            set -e
-            # 安装 git (如果没有)
-            apt-get update -qq && apt-get install -y -qq git 2>/dev/null || yum install -y git 2>/dev/null
+          if [ "$SYNC_MODE" = "ssh_push" ]; then
+            echo "� 采用 SSH 推送模式 (SSH Push)..."
+            # 1. 确保目录存在
+            sshpass -p "$ROOT_PASS" ssh -o StrictHostKeyChecking=no root@$VPS_IP "mkdir -p $DEPLOY_DIR"
+            # 2. 通过管道推送代码并解压 (排除 .git)
+            tar -cz --exclude='.git' . | sshpass -p "$ROOT_PASS" ssh -o StrictHostKeyChecking=no root@$VPS_IP "tar -xz -C $DEPLOY_DIR"
+          else
+            echo "🤖 采用原生 Git 拉取模式 (Git Pull)..."
+            sshpass -p "$ROOT_PASS" ssh \
+              -o StrictHostKeyChecking=no \
+              root@$VPS_IP \
+              "
+              set -e
+              apt-get update -qq && apt-get install -y -qq git 2>/dev/null || yum install -y git 2>/dev/null
 
-            # 构建带鉴权或加速的 URL
-            if [ -n '${{ secrets.GH_TOKEN }}' ]; then
-              TARGET_URL='https://${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}.git'
-            else
-              TARGET_URL='https://github.com/${{ github.repository }}.git'
-            fi
+              if [ -n '${{ secrets.GH_TOKEN }}' ]; then
+                TARGET_URL='https://${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}.git'
+              else
+                TARGET_URL='https://github.com/${{ github.repository }}.git'
+              fi
 
-            # 克隆或更新仓库
-            if [ -d '$DEPLOY_DIR/.git' ]; then
-              echo '仓库已存在，配置远程地址并执行 pull...'
-              cd $DEPLOY_DIR
-              git remote set-url origin \$TARGET_URL
-              git pull
-            else
-              echo '克隆仓库...'
-              git clone \$TARGET_URL $DEPLOY_DIR
-            fi
-            "
+              if [ -d '$DEPLOY_DIR/.git' ]; then
+                cd $DEPLOY_DIR && git remote set-url origin \$TARGET_URL && git pull
+              else
+                git clone \$TARGET_URL $DEPLOY_DIR
+              fi
+              "
+          fi
 
           echo "📝 注入 .env 文件..."
-          # 使用 printf 避免特殊字符问题
           sshpass -p "$ROOT_PASS" ssh \
             -o StrictHostKeyChecking=no \
             root@$VPS_IP \
@@ -116,8 +125,8 @@ jobs:
           $ENV_CONTENT
           ENVEOF
           chmod 600 $DEPLOY_DIR/.env"
-
-          echo "✅ 仓库和 .env 已就位"
+          
+          echo "✅ 代码和 .env 同步完成 ($SYNC_MODE)"
 
       # ─── 第三步: 运行 init_host.sh ───
       - name: 运行 init_host.sh (全自动初始化)

@@ -28,6 +28,14 @@ on:
         required: true
         default: "Production"
         type: string
+      sync_mode:
+        description: "同步模式 (git_pull: 原生拉取, ssh_push: SSH 推送救急)"
+        required: true
+        default: "git_pull"
+        type: choice
+        options:
+          - git_pull
+          - ssh_push
 
 jobs:
   validate:
@@ -100,7 +108,19 @@ jobs:
 
       # ─── 主部署逻辑 ───
       - name: 拉取代码并重启服务
+        env:
+          SYNC_MODE: ${{ github.event.inputs.sync_mode || vars.SYNC_MODE || 'git_pull' }}
         run: |
+          if [ "$SYNC_MODE" = "ssh_push" ]; then
+            echo "🚚 采用 SSH 推送模式 (SSH Push)..."
+            tar -cz --exclude='.git' . | ssh \
+              -i ~/.ssh/deploy_key \
+              -p "${{ vars.VPS_SSH_PORT || secrets.VPS_SSH_PORT || '22222' }}" \
+              -o StrictHostKeyChecking=no \
+              "${{ vars.VPS_USER || secrets.VPS_USER || 'sudor' }}@${{ secrets.VPS_HOST }}" \
+              "tar -xz -C /opt/vps-dmz"
+          fi
+
           ssh \
             -i ~/.ssh/deploy_key \
             -p "${{ vars.VPS_SSH_PORT || secrets.VPS_SSH_PORT || '22222' }}" \
@@ -109,16 +129,16 @@ jobs:
             "${{ vars.VPS_USER || secrets.VPS_USER || 'sudor' }}@${{ secrets.VPS_HOST }}" \
             '
             set -e
-            echo "📦 拉取最新代码..."
             cd /opt/vps-dmz
 
-            # 构建带鉴权或加速的 URL
-            if [ -n "${{ secrets.GH_TOKEN }}" ]; then
-              TARGET_URL="https://${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}.git"
-              git remote set-url origin "$TARGET_URL"
+            if [ "'"$SYNC_MODE"'" != "ssh_push" ]; then
+              echo "🤖 采用原生 Git 拉取模式 (Git Pull)..."
+              if [ -n "'"${{ secrets.GH_TOKEN }}"'" ]; then
+                TARGET_URL="https://${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}.git"
+                git remote set-url origin "$TARGET_URL"
+              fi
+              git pull origin main
             fi
-
-            git pull origin main
 
             echo "🔄 同步配置文件..."
             cp -f compose/docker-compose.yml ./docker-compose.yml
@@ -138,7 +158,7 @@ jobs:
 
             echo ""
             docker ps --format "table {{.Names}}\t{{.Status}}"
-            echo "✅ 环境部署完成: ${{ github.event.inputs.target_env || 'Production' }}"
+            echo "✅ 环境部署完成: ${{ github.event.inputs.target_env || 'Production' }} ('"$SYNC_MODE"')"
             '
 
       # ─── 清理临时文件 ───
