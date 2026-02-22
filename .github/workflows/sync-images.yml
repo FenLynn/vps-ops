@@ -47,16 +47,33 @@ jobs:
 
       - name: 6. 自动将容器镜像设为公开 (Public)
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          # 优先使用用户自定义的 GH_TOKEN，如果没有则回退回 github.token 避免 gh CLI 报错
+          GH_TOKEN: ${{ secrets.GH_TOKEN || github.token }}
         run: |
           echo "🌐 正在将镜像可见性设置为公开..."
-          # 注意：此操作需要 GH_TOKEN 具备 admin:packages 权限
+          
+          # 检查 Token 是否看起来像是通过 Secrets 传入的 (长度过短可能代表 Secret 没配对)
+          if [ "${#GH_TOKEN}" -lt 20 ]; then
+             echo "⚠️ 警告: 发现 GH_TOKEN 异常短或未设置，可能无法修改可见性权限。"
+          fi
+
           for pkg in kopia unblock-netease-music-enhanced derper; do
-            echo "  - 设置 ${pkg} 为公开..."
+            echo "  - 尝试设置 ${pkg} 为公开..."
+            # 使用更通用的 API 路径：/orgs/{org} 或 /users/{user}
+            # 注意：GHCR API 路径通常是小写的
             gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
               "/user/packages/container/${pkg}/manage_visibility" \
-              -f visibility='public' || echo "  ⚠️ ${pkg} 公开权限设置失败，请手动核实或确认 GH_TOKEN 权限"
+              -f visibility='public' || \
+            gh api \
+              --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "/orgs/${{ env.IMAGE_OWNER }}/packages/container/${pkg}/manage_visibility" \
+              -f visibility='public' || \
+            echo "  ❌ ${pkg} 公开权限自动设置失败。原因：GH_TOKEN 权限不足或 Package 不在当前账号下。"
           done
+          
+          echo "💡 如果自动设置失败，请手动：GitHub -> Packages -> Package Settings -> Change Visibility -> Public"
