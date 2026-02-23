@@ -49,8 +49,12 @@ jobs:
 
       - name: Docker Compose 语法验证
         run: |
+          # 模拟 init_host.sh/deploy 的实际行为:
+          # 先把 compose/ 里的文件同步到根目录，再验证
+          # (init_host.sh 和 deploy 都通过根目录的 docker-compose.yml 启动服务)
+          cp compose/docker-compose.yml docker-compose.yml
           cp .env.example .env
-          docker compose --env-file .env -f compose/docker-compose.yml config --quiet
+          docker compose --env-file .env config --quiet
 
       - name: Python 语法检查
         run: python3 -m py_compile config/fastapi-gateway/main.py

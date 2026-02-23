@@ -119,12 +119,10 @@ sudo ufw status  # 确认规则生效
 1. 进入 **CF 主控制台 → 你的站点 → Security → WAF → Rate limiting rules → Create rule**
 2. 配置：
    - Rule name: `Vaultwarden 防密码爆破`
-   - If incoming requests match:
-     - Field: `Hostname` → Equals → `pw.660415.xyz`
-     - **AND**
-     - Field: `URI Path` → Contains → `/api/accounts/prelogin`
-   - Requests: `5` requests per `10` seconds
-   - Action: `Block` for `1 hour`
+   - If incoming requests match: 选择 `Edit expression` 并填入：
+     `(http.host eq "pw.660415.xyz" and http.request.uri.path contains "/api/accounts/prelogin")`
+   - Requests: `5` requests per `10 seconds`
+   - Action: `Block` for `10 seconds` (受限于免费版额度，只能选 10s，但也足够拖慢爆破脚本了)
 3. 保存并启用
 
 ---
