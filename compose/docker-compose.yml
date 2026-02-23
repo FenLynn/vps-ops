@@ -25,6 +25,11 @@ services:
     container_name: cloudflared
     restart: unless-stopped
     command: tunnel run --token ${CF_TOKEN:?CF_TOKEN is required}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - vps_tunnel_net
     healthcheck:
@@ -44,6 +49,11 @@ services:
     environment:
       - CF_Token=${CF_DNS_API_TOKEN:?CF_DNS_API_TOKEN is required}
       - CF_Account_ID=${CLOUDFLARE_ACCOUNT_ID:-}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
     network_mode: host
 
   # --- 首次证书签发 (一次性任务) ---
@@ -115,6 +125,11 @@ services:
       - WATCHTOWER_SCHEDULE=0 0 4 * * *
       - DOCKER_API_VERSION=1.44
       - WATCHTOWER_NOTIFICATION_URL=${WATCHTOWER_NOTIFICATION_URL:-}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
@@ -140,6 +155,11 @@ services:
       - ${BASE_DIR:-/opt/vps-dmz}/data/acme/${DERP_DOMAIN:-localhost}:/app/certs:ro
       # 挂载 tailscaled socket，供 --verify-clients 鉴权回调使用
       - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       acme-init:
         condition: service_completed_successfully
@@ -189,6 +209,11 @@ services:
     command: ["-p", "8080:8081", "-e", "http://music-api:3000"]
     environment:
       - NODE_ENV=production
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - vps_tunnel_net
 
@@ -201,6 +226,11 @@ services:
       # 强制通过解灰代理访问
       - HTTP_PROXY=http://unblock-netease:8080
       - HTTPS_PROXY=http://unblock-netease:8080
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       - unblock-netease
     networks:
@@ -219,11 +249,17 @@ services:
     # 宿主机上运行 Tailscale，容器通过宿主机路由到 NAS
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
     depends_on:
       - cloudflared
     networks:
       - vps_tunnel_net
     # 🚫 无端口暴露，通过 CF Tunnel 访问
+    # ⚠️ nginx access.log 写入 volume，需宿主机 logrotate 单独处理（见部署手册）
 
 
   # --- FastAPI 统一网关 ---
@@ -241,6 +277,11 @@ services:
       - NEW_API_URL=http://new-api:3000
       - MUSIC_API_URL=http://music-api:3000
       - NGINX_RELAY_URL=http://nginx-relay:80
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       - cloudflared
       - new-api
@@ -260,6 +301,11 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - vps_tunnel_net
     # 🚫 无端口暴露，通过 CF Tunnel 访问
@@ -307,6 +353,11 @@ services:
       # 保持容器运行，由宿主机 crontab 调用 docker exec 触发备份
       tail -f /dev/null
       "
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
 
   # =========================================================================
   # Layer 1.5: 安全基础设施 (Security)
@@ -351,8 +402,8 @@ services:
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "5m"
+        max-file: "2"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/alive"]
       interval: 60s
@@ -377,6 +428,11 @@ services:
       - ${BASE_DIR:-/opt/vps-dmz}/data/dockge:/app/data
     environment:
       - DOCKGE_STACKS_DIR=/app/stacks
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
     networks:
       - vps_tunnel_net
     # 🚫 无端口暴露，通过 CF Tunnel + Access 访问
@@ -390,6 +446,11 @@ services:
       - ${BASE_DIR:-/opt/vps-dmz}/data/homarr/configs:/app/data/configs
       - ${BASE_DIR:-/opt/vps-dmz}/data/homarr/icons:/app/public/icons
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
     networks:
       - vps_tunnel_net
     # 🚫 无端口暴露，通过 CF Tunnel + Access 访问
