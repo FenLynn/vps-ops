@@ -61,11 +61,13 @@ jobs:
 
       - name: 3. 自动将容器镜像设为公开 (Public)
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          # 注意: 不能使用 GH_TOKEN 作为变量名，它是 gh CLI 的保留变量会被内置 GITHUB_TOKEN 覆盖
+          GHCR_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "❌ 错误: 未发现 secrets.GH_TOKEN。请确保在仓库设置中添加了此 Secret (需要 admin:packages 权限)。"
-            exit 1
+          if [ -z "$GHCR_TOKEN" ]; then
+            echo "⚠️  警告: 未发现 secrets.GH_TOKEN，跳过自动公开步骤。"
+            echo "💡 请手动执行：GitHub -> Packages -> 进入包 -> Package Settings -> Change Visibility -> Public"
+            exit 0
           fi
 
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
@@ -80,13 +82,13 @@ jobs:
 
           for pkg in "${PACKAGES[@]}"; do
             echo "🌐 正在将 ${pkg} 设为 Public..."
-            gh api \
+            GH_TOKEN="$GHCR_TOKEN" gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
               "/user/packages/container/${pkg}/manage_visibility" \
               -f visibility='public' || \
-            gh api \
+            GH_TOKEN="$GHCR_TOKEN" gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
