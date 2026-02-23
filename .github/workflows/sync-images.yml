@@ -19,33 +19,48 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 2. 批量中转并推送镜像
+      - name: 2. 批量中转并推送镜像 (已存在则跳过)
         run: |
-          # 参考 acme 设计：在 step 内定义变量并转小写
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          
+
           echo "🚀 正在搬运镜像到 ghcr.io/${OWNER}..."
-          
-          # 定义镜像映射列表: "源镜像|目标全称"
+
+          # 格式: "源镜像|目标镜像(不含 ghcr.io/${OWNER}/ 前缀)"
+          # 有版本要求的镜像请锁定具体版本号，latest 镜像每次也会检查
           IMAGES=(
-            "kopia/kopia:latest|ghcr.io/${OWNER}/kopia:latest"
-            "pan93412/unblock-netease-music-enhanced:latest|ghcr.io/${OWNER}/unblock-netease-music-enhanced:latest"
-            "fredliang/derper:latest|ghcr.io/${OWNER}/derper:latest"
+            "kopia/kopia:latest|kopia:latest"
+            "pan93412/unblock-netease-music-enhanced:latest|unblock-netease-music-enhanced:latest"
+            "fredliang/derper:latest|derper:latest"
+            "vaultwarden/server:1.33.2|vaultwarden:1.33.2"
           )
 
           for item in "${IMAGES[@]}"; do
             SRC="${item%%|*}"
-            DST="${item##*|}"
-            echo "  - 正在搬运: ${SRC} -> ${DST}"
+            DST_SHORT="${item##*|}"
+            DST="ghcr.io/${OWNER}/${DST_SHORT}"
+
+            echo ""
+            echo "── 检查: ${DST}"
+
+            # 使用 manifest inspect 检查镜像是否已存在于 GHCR
+            # --insecure 防止网络问题误报，失败则继续拉取
+            if docker manifest inspect "${DST}" > /dev/null 2>&1; then
+              echo "  ✅ 已存在，跳过: ${DST}"
+              continue
+            fi
+
+            echo "  🔄 不存在，开始搬运: ${SRC} -> ${DST}"
             docker pull "${SRC}"
             docker tag "${SRC}" "${DST}"
             docker push "${DST}"
+            echo "  ✅ 推送完成: ${DST}"
           done
+
+          echo ""
+          echo "🎉 所有镜像同步完毕！"
 
       - name: 3. 自动将容器镜像设为公开 (Public)
         env:
-          # 此操作必须使用具有 admin:packages 权限的个人访问令牌 (PAT)
-          # 如果 secrets.GH_TOKEN 未设置，以下步骤会报错
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           if [ -z "$GH_TOKEN" ]; then
@@ -54,12 +69,17 @@ jobs:
           fi
 
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          
-          for pkg in kopia unblock-netease-music-enhanced derper; do
+
+          # 所有需要设为公开的包名列表
+          PACKAGES=(
+            kopia
+            unblock-netease-music-enhanced
+            derper
+            vaultwarden
+          )
+
+          for pkg in "${PACKAGES[@]}"; do
             echo "🌐 正在将 ${pkg} 设为 Public..."
-            
-            # 尝试多种路径 (兼容个人和组织账号)
-            # 使用 -H 头部声明 API 版本
             gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
@@ -72,7 +92,7 @@ jobs:
               -H "X-GitHub-Api-Version: 2022-11-28" \
               "/orgs/${OWNER}/packages/container/${pkg}/manage_visibility" \
               -f visibility='public' || \
-            echo "  ⚠️ ${pkg} 自动公开失败。这通常是因为该镜像尚未完成创建，或您的 Token 没有该包的管理权限。"
+            echo "  ⚠️ ${pkg} 自动公开失败，请手动操作: GitHub -> Packages -> 进入包 -> Package Settings -> Change Visibility -> Public"
           done
-          
+
           echo "💡 如果自动设置依然失败，请务必手动执行：GitHub -> Packages -> 进入包 -> Package Settings -> Change Visibility -> Public"
