@@ -365,7 +365,7 @@ services:
 
   # --- Vaultwarden 密码管理器 ---
   vaultwarden:
-    image: vaultwarden/server:1.32.0  # 固定版本，防止自动更新破坏 SQLite 数据库结构
+    image: vaultwarden/server:1.33.2  # 固定版本，防止最新版本或自动更新破坏 SQLite 数据库结构
     container_name: vaultwarden
     restart: unless-stopped
     labels:
