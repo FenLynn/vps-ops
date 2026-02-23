@@ -137,9 +137,11 @@ jobs:
               fi
 
               if [ ! -d .git ]; then
+                git config --global --add safe.directory /opt/vps-dmz
                 git init -b main
                 git remote add origin \$TARGET_URL
               else
+                git config --global --add safe.directory /opt/vps-dmz
                 git remote set-url origin \$TARGET_URL
               fi
 
