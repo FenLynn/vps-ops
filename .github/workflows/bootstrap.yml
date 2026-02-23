@@ -122,33 +122,7 @@ jobs:
             sshpass -p "$ROOT_PASS" ssh $SSH_OPTS root@$VPS_IP "mkdir -p $DEPLOY_DIR"
             tar -cz --exclude='.git' . | sshpass -p "$ROOT_PASS" ssh $SSH_OPTS root@$VPS_IP "tar -xz -C $DEPLOY_DIR"
 
-            echo "🔗 绑定 Git 仓库（ssh_push + git 双轨，支持后续 git pull）..."
-            sshpass -p "$ROOT_PASS" ssh $SSH_OPTS root@$VPS_IP "
-              set -e
-              apt-get install -y -qq git 2>/dev/null || yum install -y git 2>/dev/null
-
-              cd $DEPLOY_DIR
-
-              if [ -n '${{ secrets.GH_TOKEN }}' ]; then
-                TARGET_URL='https://${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}.git'
-              else
-                TARGET_URL='https://github.com/${{ github.repository }}.git'
-              fi
-
-              if [ ! -d .git ]; then
-                git config --global --add safe.directory $DEPLOY_DIR
-                git init -b main
-                git remote add origin \$TARGET_URL
-              else
-                git config --global --add safe.directory $DEPLOY_DIR
-                git remote set-url origin \$TARGET_URL
-              fi
-
-              git fetch origin main --quiet
-              # --mixed: 让 HEAD 指向 origin/main，暂存区同步，工作区已推送的文件保持不变
-              git reset --mixed origin/main --quiet
-              echo '✅ Git 仓库已绑定，VPS 上后续可直接执行 git pull'
-            "
+            echo "💡 ssh_push 模式：跳过 Git 绑定。如需绑定，在 VPS 上执行: bash /opt/vps-dmz/scripts/git_bind.sh"
           else
             echo "🤖 采用原生 Git 拉取模式 (Git Pull, Port: $SSH_PORT)..."
             sshpass -p "$ROOT_PASS" ssh $SSH_OPTS \

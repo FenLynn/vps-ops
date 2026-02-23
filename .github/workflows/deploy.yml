@@ -120,35 +120,7 @@ jobs:
               "${{ vars.VPS_USER || secrets.VPS_USER || 'sudor' }}@${{ secrets.VPS_HOST }}" \
               "tar -xz -C /opt/vps-dmz"
 
-            echo "🔗 同步 Git 仓库状态（ssh_push + git 双轨）..."
-            ssh \
-              -i ~/.ssh/deploy_key \
-              -p "${{ vars.VPS_SSH_PORT || secrets.VPS_SSH_PORT || '22222' }}" \
-              -o StrictHostKeyChecking=no \
-              "${{ vars.VPS_USER || secrets.VPS_USER || 'sudor' }}@${{ secrets.VPS_HOST }}" \
-              "
-              set -e
-              cd /opt/vps-dmz
-
-              if [ -n '${{ secrets.GH_TOKEN }}' ]; then
-                TARGET_URL='https://${{ secrets.GH_TOKEN }}@github.com/${{ github.repository }}.git'
-              else
-                TARGET_URL='https://github.com/${{ github.repository }}.git'
-              fi
-
-              if [ ! -d .git ]; then
-                git config --global --add safe.directory /opt/vps-dmz
-                git init -b main
-                git remote add origin \$TARGET_URL
-              else
-                git config --global --add safe.directory /opt/vps-dmz
-                git remote set-url origin \$TARGET_URL
-              fi
-
-              git fetch origin main --quiet
-              git reset --mixed origin/main --quiet
-              echo '✅ Git 仓库已同步 (ssh_push + git 双轨)'
-              "
+            echo "💡 ssh_push 模式：跳过 Git 绑定。如需绑定，在 VPS 上执行: bash /opt/vps-dmz/scripts/git_bind.sh"
           fi
 
           ssh \
