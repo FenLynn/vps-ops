@@ -96,7 +96,7 @@ done
 # ─── 4. Maintenance: 清理与维护 ──────────────────────────────────────────────
 if [ "${SNAP_SUCCESS}" = true ]; then
     echo "${LOG_PREFIX} [4/4] 清理过期快照..."
-    docker exec kopia kopia maintenance run --full \
+    docker exec kopia kopia maintenance run \
         --log-level=warning \
         2>&1 | while read -r line; do echo "  ${line}"; done || true
 else
