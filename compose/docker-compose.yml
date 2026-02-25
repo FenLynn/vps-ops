@@ -206,8 +206,11 @@ services:
     image: ${MUSIC_API_IMAGE:-ghcr.io/fenlynn/netease_cloud_music_api:latest}
     container_name: music-api
     restart: unless-stopped
-    # 默认直连网易云，阿里云 ECS 在国内无需代理
-    # 如需解灰支持，可添加 NO_PROXY等配置，但 HTTP_PROXY 会导致 ECONNRESET
+    # 使用 music-api 应用层参数解灰，不使用系统级 HTTP_PROXY（会导致 ECONNRESET）
+    environment:
+      - ENABLE_GENERAL_UNBLOCK=true   # 内置自动解灰，覆盖大多数灰色歌曲
+      - ENABLE_FLAC=true              # 允许请求无损 FLAC 音质
+      - ENABLE_LOCAL_VIP=cvip         # 本地 CVIP，解锁 VIP 专属曲目
     logging:
       driver: "json-file"
       options:
