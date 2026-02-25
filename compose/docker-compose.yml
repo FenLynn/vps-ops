@@ -206,7 +206,7 @@ services:
     container_name: unblock-netease
     restart: unless-stopped
 #    command: ["-p", "8080", "-s", "-e"]   # 👈 必须补上这一行！(开启严格模式与前端端点模式)
-    command: ["-p", "8080:8081", "-e", "http://music-api:3000"]
+    command: ["-p", "8080:8081"]
     environment:
       - NODE_ENV=production
     logging:
@@ -345,10 +345,6 @@ services:
       # 全局保留策略
       kopia policy set --global --keep-daily 7 --keep-weekly 4 --keep-monthly 6;
 
-      # Vaultwarden 专属高频策略 (密码库比其他数据更宝贵)
-      kopia policy set /source/vaultwarden \
-        --keep-hourly 24 --keep-daily 30 --keep-weekly 12 --keep-monthly 6;
-
       echo '✅ Kopia 就绪，等待外部 backup_kopia.sh 触发快照...';
       # 保持容器运行，由宿主机 crontab 调用 docker exec 触发备份
       tail -f /dev/null
@@ -360,57 +356,25 @@ services:
         max-file: "2"
 
   # =========================================================================
-  # Layer 1.5: 安全基础设施 (Security)
+  # Layer 1.5: 静态前端业务 (Frontend)
   # =========================================================================
 
-  # --- Vaultwarden 密码管理器 ---
-  vaultwarden:
-    image: ghcr.io/fenlynn/vaultwarden:1.33.2  # 固定版本，走 GHCR 镜像拉取更稳定
-    container_name: vaultwarden
+  # --- YesPlayMusic 纯前端页面 ---
+  music-web:
+    image: qier222/yesplaymusic:latest
+    container_name: music-web
     restart: unless-stopped
-    labels:
-      # 明确禁止 Watchtower 自动更新此容器 (版本变更需人工审核后手动操作)
-      - "com.centurylinklabs.watchtower.enable=false"
     environment:
-      - TZ=Asia/Shanghai
-      # ── 访问控制 ──
-      - SIGNUPS_ALLOWED=true   # ⚠️ 完成首次注册后立即改为 false 并重启！
-      - INVITATIONS_ALLOWED=false
-      - SHOW_PASSWORD_HINT=false
-      # ── 系统调优 ──
-      - TRASH_AUTO_CLEAR_DAYS=30
-      - IP_HEADER=CF-Connecting-IP  # 透传真实 IP，防止 CF 隧道 IP 被误封
-      # ── 后台管理 (CF Access 添加一层 OTP 后，再由此 Token 进入后台) ──
-      - ADMIN_TOKEN=${VW_ADMIN_TOKEN:?VW_ADMIN_TOKEN is required}
-      # ── SMTP 邮件 (可选，启用后支持 2FA 提醒、新设备登录告警) ──
-      # - SMTP_HOST=smtp.qq.com
-      # - SMTP_FROM=${VW_SMTP_FROM:-}
-      # - SMTP_PORT=465
-      # - SMTP_SECURITY=force_tls
-      # - SMTP_USERNAME=${VW_SMTP_FROM:-}
-      # - SMTP_PASSWORD=${VW_SMTP_PASSWORD:-}
-    volumes:
-      # ⚠️ 挂载整个目录：WAL 模式下 db.sqlite3 / .wal / .shm 必须同目录
-      - ${BASE_DIR:-/opt/vps-dmz}/data/vaultwarden:/data
-      # 原子级时钟同步，防止 TOTP 时间漂移导致自己被 2FA 锁死
-      - /etc/localtime:/etc/localtime:ro
-    ports:
-      # 绑定全部接口，由宿主机 UFW 限制只允许 Tailscale 子网访问
-      # (UFW 规则: ufw allow in on tailscale0 to any port 8080)
-      # 极端情况 CF 宕机时，Tailscale 直连: http://<VPS-Tailscale-IP>:8080
-      - "0.0.0.0:8080:80"
+      # 这个环境变量控制前端往哪里发请求。注意：这里必须填包含域名的公网 URL (由 Nginx 反代)
+      - VUE_APP_NETEASE_API_URL=https://music.660415.xyz/api
     logging:
       driver: "json-file"
       options:
         max-size: "5m"
         max-file: "2"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80/alive"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
     networks:
       - vps_tunnel_net
+    # 🚫 无暴露端口，由 nginx-relay 或者 CF Tunnel 代理访问
     depends_on:
       - cloudflared
 

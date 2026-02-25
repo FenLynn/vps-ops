@@ -39,8 +39,8 @@ VW_ADMIN_TOKEN=换成你自己生成的随机字符串
 ## 第二步：重新部署 FastAPI 网关
 
 ```bash
-# 必须 --build 重新构建镜像（有新文件加入）
-docker compose -f /opt/vps-dmz/compose/docker-compose.yml up -d --build fastapi-gateway
+cd /opt/vps-dmz
+docker compose --env-file .env up -d --build fastapi-gateway
 ```
 
 **验证 SSE 流式是否生效（从本地终端）：**
@@ -83,6 +83,35 @@ sudo ufw status  # 确认规则生效
 
 > 这样外网无法直接访问 8080，只有连上 Tailscale 后才能访问。  
 > 极端情况 Cloudflare 宕机时：打开 Tailscale → 访问 `http://<VPS-Tailscale-IP>:8080`
+
+---
+
+## 第四点五步：修复 music.660415.xyz 音乐前端
+
+> **根本原因**：YesPlayMusic 使用 axios 发出的请求路径是 `/search`、`/song/detail` 等绝对路径。当 axios baseURL 包含路径（如 `https://api.660415.xyz/music`）时，绝对路径会**替换（而非追加）** 路径，导致请求打到 `https://api.660415.xyz/search` 而非 `/music/search`，FastAPI 网关没有这个路由就返回 404。
+
+### 4.5.1 CF Tunnel — 给 music-api 独立创建一条直连路由
+
+1. 进入 **Zero Trust → Networks → Tunnels**
+2. 编辑你的 Tunnel → **Public Hostnames → Add a public hostname**
+3. 填写：
+   - Subdomain: `music-api`
+   - Domain: `660415.xyz`
+   - Service: `http://music-api:3000`
+4. 保存
+
+### 4.5.2 CF Pages — 修改 YesPlayMusic 的 API 地址
+
+1. 进入 **Cloudflare Pages → YesPlayMusic 项目 → Settings → Environment variables**
+2. 将 `VUE_APP_NETEASE_API_URL` 的值改为：
+   ```
+   https://music-api.660415.xyz
+   ```
+3. 保存后，触发一次新的部署（push 一个 commit 或手动触发）
+
+### 4.5.3 验证
+
+访问 `https://music-api.660415.xyz/search?keywords=test`，应该能直接返回 JSON 数据，说明链路通了。然后刷新 `https://music.660415.xyz`，音乐应该正常加载。
 
 ---
 
