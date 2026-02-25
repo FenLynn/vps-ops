@@ -325,13 +325,14 @@ services:
     # 🚫 无端口暴露，通过 CF Tunnel + Access 访问
 
   # --- Homarr (导航仪表盘) ---
+  # 提示：如果依然觉得不好用或数据容易重置，建议执行 docker compose down -v 彻底清理后重新拉起。
   homarr:
-    image: ghcr.io/ajnart/homarr:latest
+    image: ghcr.io/fenlynn/homarr:latest
     container_name: homarr
     restart: unless-stopped
     volumes:
-      - ${BASE_DIR:-/opt/vps-dmz}/data/homarr/configs:/app/data/configs
-      - ${BASE_DIR:-/opt/vps-dmz}/data/homarr/icons:/app/public/icons
+      # 修复持久化：核心数据必须完整挂载 /app/data，否则配置不会保存
+      - ${BASE_DIR:-/opt/vps-dmz}/data/homarr:/app/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
     logging:
       driver: "json-file"

@@ -36,8 +36,8 @@ jobs:
             "neilpang/acme.sh:latest|acme.sh:latest"
             "louislam/uptime-kuma:1|uptime-kuma:1"
             "amir20/dozzle:latest|dozzle:latest"
+            "ajnart/homarr:latest|homarr:latest"
             "nginx:alpine|nginx:alpine"
-            "calciumion/new-api:latest|new-api:latest"
             "binaryify/netease_cloud_music_api:latest|netease_cloud_music_api:latest"
           )
 
@@ -86,8 +86,8 @@ jobs:
             acme.sh
             uptime-kuma
             dozzle
+            homarr
             nginx
-            new-api
             netease_cloud_music_api
           )
 
