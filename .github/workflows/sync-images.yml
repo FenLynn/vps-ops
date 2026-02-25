@@ -35,7 +35,7 @@ jobs:
             "cloudflare/cloudflared:latest|cloudflared:latest"
             "neilpang/acme.sh:latest|acme.sh:latest"
             "louislam/uptime-kuma:1|uptime-kuma:1"
-            "louislam/dockge:1|dockge:1"
+            "amir20/dozzle:latest|dozzle:latest"
             "nginx:alpine|nginx:alpine"
             "calciumion/new-api:latest|new-api:latest"
             "binaryify/netease_cloud_music_api:latest|netease_cloud_music_api:latest"
@@ -85,7 +85,7 @@ jobs:
             cloudflared
             acme.sh
             uptime-kuma
-            dockge
+            dozzle
             nginx
             new-api
             netease_cloud_music_api

@@ -307,7 +307,7 @@ services:
   # --- Dozzle (轻量级容器日志面板) ---
   # 极致轻量、无需配置的容器实时日志查看器，完美契合当前命令行的架构部署
   dozzle:
-    image: amir20/dozzle:latest
+    image: ghcr.io/fenlynn/dozzle:latest
     container_name: dozzle
     restart: unless-stopped
     volumes:
