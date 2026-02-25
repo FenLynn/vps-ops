@@ -63,8 +63,6 @@ for attempt in $(seq 1 ${MAX_RETRIES}); do
     # 排除 SQLite 临时文件 (.shm, .wal, -journal)
     SNAP_OUTPUT=$(docker exec kopia kopia snapshot create /source \
         --parallel=1 \
-        --override-hostname=vps-backup \
-        --override-username=root \
         --log-level=warning \
         2>&1)
     SNAP_RC=$?
