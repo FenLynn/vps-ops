@@ -304,23 +304,22 @@ services:
   # Layer 2: 管理面板 (Management)
   # =========================================================================
 
-  # --- Dockge (容器管理) ---
-  # ⚠️ Dockge 只"认"自己创建的栈，本项目通过 SSH/CI 拉起，在面板中会显示为外部/孤儿状态，这是 Dockge 的设计行为，无法规避。
-  # 实际用途：用 Dockge 查看容器日志、执行 Bash、监控状态，不期望它直接管理本栈的生命周期。
-  dockge:
-    image: ghcr.io/fenlynn/dockge:1
-    container_name: dockge
+  # --- Dozzle (轻量级容器日志面板) ---
+  # 极致轻量、无需配置的容器实时日志查看器，完美契合当前命令行的架构部署
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: dozzle
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${BASE_DIR:-/opt/vps-dmz}/data/dockge:/app/data
     environment:
-      - DOCKGE_STACKS_DIR=/app/stacks
+      # 去除没用的分析收集
+      - DOZZLE_NO_ANALYTICS=true
     logging:
       driver: "json-file"
       options:
-        max-size: "5m"
-        max-file: "2"
+        max-size: "10m"
+        max-file: "3"
     networks:
       - vps_tunnel_net
     # 🚫 无端口暴露，通过 CF Tunnel + Access 访问
