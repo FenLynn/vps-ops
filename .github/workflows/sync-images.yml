@@ -26,7 +26,8 @@ jobs:
           
       - name: 2. Pull, Retag and Push Images
         run: |
-          # 格式: 源镜像名称|推送到 GHCR 后的末尾名称 (不要带 fenlynn)
+          # 注意：以下列表必须只包含从外界 Docker Hub 抓取的“他源”镜像！
+          # 对于本来就在你 GitHub 自动构建的（如 derper, kopia, unblock-netease），不要放入此表！
           IMAGES=(
             "qier222/yesplaymusic:latest|yesplaymusic:latest"
             "cloudflare/cloudflared:latest|cloudflared:latest"
@@ -36,14 +37,18 @@ jobs:
             "nginx:alpine|nginx:alpine"
             "calciumion/new-api:latest|new-api:latest"
             "binaryify/netease_cloud_music_api:latest|netease_cloud_music_api:latest"
-            # 下面这些已经是 ghcr 源的，正常不用转，但防止源作者删库也可加入备份：
-            # "ghcr.io/ajnart/homarr:latest|homarr:latest"
           )
           
           for item in "${IMAGES[@]}"; do
             SOURCE_IMG="${item%%|*}"
             TARGET_IMG_NAME="${item##*|}"
             TARGET_IMG="${{ env.REGISTRY }}/${{ env.OWNER }}/$TARGET_IMG_NAME"
+            
+            # 防御性过滤：如果配置项本身就是 ghcr.io 开头的官方仓来源，则直接跳过！防止套娃
+            if [[ "$SOURCE_IMG" == ghcr.io/* ]]; then
+              echo "⏭️ 跳过原生 GHCR 镜像: $SOURCE_IMG"
+              continue
+            fi
             
             echo "🚀 开始拉取: $SOURCE_IMG"
             docker pull "$SOURCE_IMG"
