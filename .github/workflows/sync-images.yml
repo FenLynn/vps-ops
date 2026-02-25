@@ -29,14 +29,14 @@ jobs:
           # 注意：以下列表必须只包含从外界 Docker Hub 抓取的“他源”镜像！
           # 对于本来就在你 GitHub 自动构建的（如 derper, kopia, unblock-netease），不要放入此表！
           IMAGES=(
-            "qier222/yesplaymusic:latest|yesplaymusic:latest"
-            "cloudflare/cloudflared:latest|cloudflared:latest"
-            "neilpang/acme.sh:latest|acme.sh:latest"
-            "louislam/uptime-kuma:1|uptime-kuma:1"
-            "louislam/dockge:1|dockge:1"
-            "nginx:alpine|nginx:alpine"
-            "calciumion/new-api:latest|new-api:latest"
-            "binaryify/netease_cloud_music_api:latest|netease_cloud_music_api:latest"
+            "docker.io/qier222/yesplaymusic:latest|yesplaymusic:latest"
+            "docker.io/cloudflare/cloudflared:latest|cloudflared:latest"
+            "docker.io/neilpang/acme.sh:latest|acme.sh:latest"
+            "docker.io/louislam/uptime-kuma:1|uptime-kuma:1"
+            "docker.io/louislam/dockge:1|dockge:1"
+            "docker.io/library/nginx:alpine|nginx:alpine"
+            "docker.io/calciumion/new-api:latest|new-api:latest"
+            "docker.io/binaryify/netease_cloud_music_api:latest|netease_cloud_music_api:latest"
           )
           
           for item in "${IMAGES[@]}"; do
@@ -49,16 +49,15 @@ jobs:
               echo "⏭️ 跳过原生 GHCR 镜像: $SOURCE_IMG"
               continue
             fi
-            
-            echo "🚀 开始拉取: $SOURCE_IMG"
-            docker pull "$SOURCE_IMG"
-            
-            echo "🏷️ 打上新标签: $TARGET_IMG"
-            docker tag "$SOURCE_IMG" "$TARGET_IMG"
-            
-            echo "📤 推送到私有/公有 GHCR..."
-            docker push "$TARGET_IMG"
             echo "----------------------------------------"
+            echo "🚀 智能同步: $SOURCE_IMG -> $TARGET_IMG"
+            
+            # 使用 skopeo 代替 docker pull/push
+            # --all 会原封不动地拷贝多架构 (Multi-arch) 的所有底层架构层
+            # skopeo 最大的特点是：如果目标仓库层的指纹 (Digest) 与源仓库相同，它会瞬间秒跳过，绝不重复下载/上传！
+            skopeo copy --all docker://$SOURCE_IMG docker://$TARGET_IMG --dest-creds ${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}
+            
+            echo "✅ $TARGET_IMG 处理结束"
           done
 
       - name: 3. Trigger VPS to Pull and Update
