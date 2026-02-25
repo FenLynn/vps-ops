@@ -206,14 +206,9 @@ services:
     image: ${MUSIC_API_IMAGE:-ghcr.io/fenlynn/netease_cloud_music_api:latest}
     container_name: music-api
     restart: unless-stopped
-    # 原版 NeteaseCloudMusicApi 只认系统级 HTTP_PROXY，不支持 ENABLE_* 扩展参数
-    # 通过 unblock-netease 代理解灰；国内源配置后不再 ECONNRESET
+    # 原版 NeteaseCloudMusicApi 不支持 HTTP_PROXY（会导致进程崩溃），直连网易云
+    # 阿里云 ECS 在国内直连无问题；解灰需更换支持 ENABLE_GENERAL_UNBLOCK 的镜像版本
     environment:
-      - HTTP_PROXY=http://unblock-netease:8080
-      - HTTPS_PROXY=http://unblock-netease:8080
-      # unblock-netease 做 HTTPS MITM 时用自签名证书，Node.js 需要关闭证书验证才能接受
-      # 这是容器内部可信代理的标准做法，安全可接受
-      - NODE_TLS_REJECT_UNAUTHORIZED=0
       - ENABLE_FLAC=true
     logging:
       driver: "json-file"
