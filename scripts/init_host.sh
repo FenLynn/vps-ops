@@ -541,6 +541,36 @@ if [ -f "${BASE_DIR}/config/fastapi-gateway/Dockerfile" ]; then
     docker build -t vps-ops/fastapi-gateway:latest ${BASE_DIR}/config/fastapi-gateway/
 fi
 
+# ─── BDR: 自动灾备恢复 (基于 Kopia + R2) ──────────────────────────────────
+if [ "${AUTO_RESTORE_FROM_R2:-true}" = "true" ] && [ -n "${R2_BUCKET:-}" ]; then
+    echo ""
+    echo "[BDR 灾备恢复] 检测到 AUTO_RESTORE_FROM_R2 开启..."
+    # 检查本地是否有存留数据（以 dockge 的存在为准，防误覆盖）
+    if [ ! -d "${BASE_DIR}/data/dockge" ] || [ -z "$(ls -A ${BASE_DIR}/data/dockge 2>/dev/null)" ]; then
+        echo "  - 判定当前为全新空载节点，尝试连入 Cloudflare R2..."
+        cd ${BASE_DIR}
+        docker compose up -d kopia
+        echo "  - ⏳ 等待 Kopia 与 R2 建立握手 (15秒)..."
+        sleep 15
+        
+        # 提取云端最新一次快照的 ID
+        LATEST_SNAP=$(docker exec kopia kopia snapshot list --json 2>/dev/null | jq -r '.[-1].id')
+        
+        if [ -n "$LATEST_SNAP" ] && [ "$LATEST_SNAP" != "null" ]; then
+            echo "  ✅ 在 R2 中发现可用快照 [$LATEST_SNAP]！开始全自动时空还原..."
+            docker exec kopia kopia restore "$LATEST_SNAP" /source
+            echo "  ✅ 数据解压与还原完美完成！"
+        else
+            echo "  ⚠️ R2 中暂无历史快照，本台机器将作为全新节点开荒。"
+        fi
+        
+        # 恢复完顺手停掉 kopia，等下面全量拉起
+        docker compose stop kopia 2>/dev/null || true
+    else
+        echo "  ⚠️ 本地已有活数据结构，为保护现场，已自动阻断 R2 快照覆写。"
+    fi
+fi
+
 # 🚀 启动全部服务
 echo ""
 echo "🚀 启动全部 Docker 服务..."
