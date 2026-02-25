@@ -311,8 +311,11 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${BASE_DIR:-/opt/vps-dmz}/data/dockge:/app/data
+      # 挂载整个项目目录到容器内，让 Dockge 能原生管理 docker-compose.yml
+      - ${BASE_DIR:-/opt/vps-dmz}:/opt/vps-dmz
     environment:
-      - DOCKGE_STACKS_DIR=/app/stacks
+      # 路径必须与上面 volumes 中容器侧的挂载点对应
+      - DOCKGE_STACKS_DIR=/opt/vps-dmz
     logging:
       driver: "json-file"
       options:

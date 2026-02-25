@@ -3,13 +3,9 @@
 # VPS-OPS v2.0 — 原子性备份脚本
 # 严格遵循 SQLite 一致性备份铁律:
 #   1. Pre-freeze:  暂停含 SQLite 的容器
-#   2. Snapshot:    Kopia 快照 (排除 .shm/.wal, 单线程写入)
+#   2. Snapshot:    Kopia 快照 (增量推送到 Cloudflare R2)
 #   3. Post-thaw:   恢复容器运行
 #   4. Maintenance: 清理过期快照
-#
-# 坚果云 WebDAV 防限流优化:
-#   - 强制 --parallel=1 单线程上传
-#   - 指数退避重试 (最多 3 次, 每次等 60 秒)
 #
 # 触发方式: crontab (0 3 * * *)
 # 用法: bash /opt/vps-dmz/scripts/backup_kopia.sh
@@ -20,8 +16,6 @@ set -uo pipefail
 
 BASE_DIR="${BASE_DIR:-/opt/vps-dmz}"
 LOG_PREFIX="[Kopia Backup]"
-
-
 
 # 需要暂停的容器列表 (含 SQLite 数据库的服务)
 PAUSE_CONTAINERS="uptime-kuma"

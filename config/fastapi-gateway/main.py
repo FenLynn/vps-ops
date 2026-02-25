@@ -2,7 +2,6 @@
 VPS-OPS v2.1 — FastAPI 统一 API 网关
 =============================================================================
 路由规划:
-  /v1/{path}     → new-api:3000       (AI 接口，流式 SSE 透传，300s 超时)
   /music/{path}  → music-api:3000     (音乐 API，流式大文件透传，60s 超时)
   /webhook/{path}→ nginx-relay:80     (NAS Webhook 转发，30s 超时)
   /ops/quant/signal   → 本地业务逻辑  (A股量化信号接收，Token 鉴权)
@@ -13,13 +12,14 @@ VPS-OPS v2.1 — FastAPI 统一 API 网关
 =============================================================================
 v2.1 修复:
   - proxy_request 全量加载 → stream_proxy 流式透传（修复 SSE 打字机效果 & 大文件内存溢出）
-  - 各路由独立超时（AI:300s / Music:60s / Webhook:30s）
+  - 各路由独立超时（Music:60s / Webhook:30s）
   - 废弃无效的 FASTAPI_SECRET_KEY，改用 VPS_TOKEN Depends 保护 /ops/*
-  - Dockerfile COPY . . 确保新模块打包进镜像
+  - httpx.AsyncClient 改为应用生命周期共享连接池，修复 TCP 连接泳漏
 """
 
 import os
 import httpx
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Depends, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse, Response
 
@@ -27,14 +27,26 @@ from auth import verify_token
 from schemas import QuantSignal, ResearchPaper
 
 # ─── 配置 ─────────────────────────────────────────────────────────────────────
-NEW_API_URL = os.getenv("NEW_API_URL", "http://new-api:3000")
 MUSIC_API_URL = os.getenv("MUSIC_API_URL", "http://music-api:3000")
 NGINX_RELAY_URL = os.getenv("NGINX_RELAY_URL", "http://nginx-relay:80")
+
+# 全局共享 HTTP 连接池—应用生命周期初始化，避免每次请求新建 Client 导致 TCP 泄露
+_http_client: httpx.AsyncClient | None = None
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    global _http_client
+    _http_client = httpx.AsyncClient()
+    yield
+    await _http_client.aclose()
+
 
 app = FastAPI(
     title="VPS-OPS API Gateway",
     description="统一 API 网关 v2.1 — 流式透传 + /ops/ 数据中台",
     version="2.1.0",
+    lifespan=lifespan,
 )
 
 
@@ -48,7 +60,10 @@ async def stream_proxy(
     """
     将请求流式代理到目标后端，不在内存中缓存响应体。
     适用于：SSE 打字机输出 / 音频大文件 / 任何流式场景。
+    使用应用全局共享的 AsyncClient 连接池。
     """
+    assert _http_client is not None, "HTTP client 未初始化"
+
     # 构建目标 URL
     path = request.url.path
     if strip_prefix and path.startswith(strip_prefix):
@@ -65,14 +80,23 @@ async def stream_proxy(
     # 读取请求体（API 请求 body 通常很小）
     body = await request.body()
 
-    # 建立流式 HTTP 连接
-    client = httpx.AsyncClient(timeout=httpx.Timeout(timeout))
-    req = client.build_request(request.method, url, headers=headers, content=body)
+    # 使用共享连接池发送请求（告别每次 new client 的贾道）
+    req = _http_client.build_request(request.method, url, headers=headers, content=body)
 
     try:
-        resp = await client.send(req, stream=True)
+        resp = await _http_client.send(
+            req,
+            stream=True,
+            extensions={
+                "timeout": {
+                    "connect": 10.0,
+                    "read": timeout,
+                    "write": timeout,
+                    "pool": timeout,
+                }
+            },
+        )
     except httpx.RequestError as e:
-        await client.aclose()
         return JSONResponse(
             status_code=502,
             content={"error": "Bad Gateway", "detail": str(e), "target": url},
@@ -91,7 +115,6 @@ async def stream_proxy(
                 yield chunk
         finally:
             await resp.aclose()
-            await client.aclose()
 
     return StreamingResponse(
         generate(),
@@ -132,8 +155,14 @@ async def health():
     tags=["AI 接口"],
 )
 async def proxy_ai(request: Request):
-    """代理到 New API — 支持 SSE 流式打字机输出，超时 300s"""
-    return await stream_proxy(request, NEW_API_URL, timeout=300.0)
+    """AI 接口占位符 — 如需使用，在 .env 中设置 NEW_API_URL 并在此重新启用该路由"""
+    new_api_url = os.getenv("NEW_API_URL", "")
+    if not new_api_url:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "AI 接口未配置，请设置 NEW_API_URL 环境变量"},
+        )
+    return await stream_proxy(request, new_api_url, timeout=300.0)
 
 
 @app.api_route(
