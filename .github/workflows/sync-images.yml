@@ -1,101 +1,84 @@
-name: 📦 手动同步 Docker 镜像至 GHCR
+name: Sync Docker Images to VPS (Offline Mode)
 
-# 仅允许手动触发
 on:
   workflow_dispatch:
+    inputs:
+      force_clean:
+        description: '完成后是否清理 VPS 上的旧悬空镜像 (true/false)'
+        required: true
+        default: 'true'
 
 jobs:
-  sync-images:
+  sync-and-deploy:
     runs-on: ubuntu-latest
-    environment: Production
-    permissions:
-      contents: read
-      packages: write
-
     steps:
-      - name: 1. 登录到 GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: 2. 批量中转并推送镜像 (已存在则跳过)
+      - name: 1. Setup Docker Environment
         run: |
-          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          # 确保 Github 机器上的 Docker 空间充足
+          docker system prune -af
 
-          echo "🚀 正在搬运镜像到 ghcr.io/${OWNER}..."
-
-          # 格式: "源镜像|目标镜像(不含 ghcr.io/${OWNER}/ 前缀)"
-          # 有版本要求的镜像请锁定具体版本号，latest 镜像每次也会检查
+      - name: 2. Pull Required Images (Define Tags Here)
+        run: |
+          # 💡 在这里定义你要拉取的镜像清单与其 Tag！
+          # 修改这里的版本号即可决定阿里云跑的是什么版本
+          
           IMAGES=(
-            "kopia/kopia:latest|kopia:latest"
-            "pan93412/unblock-netease-music-enhanced:latest|unblock-netease-music-enhanced:latest"
-            "fredliang/derper:latest|derper:latest"
-            "vaultwarden/server:1.33.2|vaultwarden:1.33.2"
+            "qier222/yesplaymusic:latest"
+            "cloudflare/cloudflared:latest"
+            "neilpang/acme.sh:latest"
+            "louislam/uptime-kuma:1"
+            "louislam/dockge:1"
+            "nginx:alpine"
+            "calciumion/new-api:latest"
+            "ghcr.io/fenlynn/unblock-netease-music-enhanced:latest"
+            "binaryify/netease_cloud_music_api:latest"
+            "ghcr.io/fenlynn/derper:latest"
+            "ghcr.io/ajnart/homarr:latest"
+            "ghcr.io/fenlynn/kopia:latest"
           )
 
-          for item in "${IMAGES[@]}"; do
-            SRC="${item%%|*}"
-            DST_SHORT="${item##*|}"
-            DST="ghcr.io/${OWNER}/${DST_SHORT}"
+          echo "开始拉取镜像列表..."
+          for img in "${IMAGES[@]}"; do
+            echo "Pulling $img..."
+            docker pull $img
+          done
 
-            echo ""
-            echo "── 检查: ${DST}"
+          echo "将所有镜像打包成单个压缩归档..."
+          # docker save 支持传入多个镜像名称，一次性打包
+          docker save "${IMAGES[@]}" | gzip > offline-images.tar.gz
+          echo "打包完成！大小："
+          ls -lh offline-images.tar.gz
 
-            # 使用 manifest inspect 检查镜像是否已存在于 GHCR
-            # --insecure 防止网络问题误报，失败则继续拉取
-            if docker manifest inspect "${DST}" > /dev/null 2>&1; then
-              echo "  ✅ 已存在，跳过: ${DST}"
-              continue
+      - name: 3. Transfer Archive to VPS via SSH
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "offline-images.tar.gz"
+          target: "/opt/vps-dmz/temp/"
+          overwrite: true
+
+      - name: 4. Unpack, Start and Clean on VPS
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            echo "1. 导入离线镜像..."
+            docker load < /opt/vps-dmz/temp/offline-images.tar.gz
+            
+            echo "2. 使用新镜像拉起容器并移除孤儿..."
+            cd /opt/vps-dmz/compose
+            docker-compose up -d --remove-orphans
+            
+            echo "3. 清理中转大文件..."
+            rm -f /opt/vps-dmz/temp/offline-images.tar.gz
+            
+            if [ "${{ github.event.inputs.force_clean }}" = "true" ]; then
+              echo "4. 强制清理悬空的旧版本垃圾镜像，释放磁盘空间..."
+              docker image prune -f
             fi
-
-            echo "  🔄 不存在，开始搬运: ${SRC} -> ${DST}"
-            docker pull "${SRC}"
-            docker tag "${SRC}" "${DST}"
-            docker push "${DST}"
-            echo "  ✅ 推送完成: ${DST}"
-          done
-
-          echo ""
-          echo "🎉 所有镜像同步完毕！"
-
-      - name: 3. 自动将容器镜像设为公开 (Public)
-        env:
-          # 注意: 不能使用 GH_TOKEN 作为变量名，它是 gh CLI 的保留变量会被内置 GITHUB_TOKEN 覆盖
-          GHCR_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-          if [ -z "$GHCR_TOKEN" ]; then
-            echo "⚠️  警告: 未发现 secrets.GH_TOKEN，跳过自动公开步骤。"
-            echo "💡 请手动执行：GitHub -> Packages -> 进入包 -> Package Settings -> Change Visibility -> Public"
-            exit 0
-          fi
-
-          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-
-          # 所有需要设为公开的包名列表
-          PACKAGES=(
-            kopia
-            unblock-netease-music-enhanced
-            derper
-            vaultwarden
-          )
-
-          for pkg in "${PACKAGES[@]}"; do
-            echo "🌐 正在将 ${pkg} 设为 Public..."
-            GH_TOKEN="$GHCR_TOKEN" gh api \
-              --method PATCH \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "/user/packages/container/${pkg}/manage_visibility" \
-              -f visibility='public' || \
-            GH_TOKEN="$GHCR_TOKEN" gh api \
-              --method PATCH \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "/orgs/${OWNER}/packages/container/${pkg}/manage_visibility" \
-              -f visibility='public' || \
-            echo "  ⚠️ ${pkg} 自动公开失败，请手动操作: GitHub -> Packages -> 进入包 -> Package Settings -> Change Visibility -> Public"
-          done
-
-          echo "💡 如果自动设置依然失败，请务必手动执行：GitHub -> Packages -> 进入包 -> Package Settings -> Change Visibility -> Public"
+            
+            echo "🎉 全量离线同步与滚动更新圆满完成！"

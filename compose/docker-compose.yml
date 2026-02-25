@@ -115,23 +115,7 @@ services:
       chmod 644 /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.key 2>/dev/null || true;
       "
 
-  # --- 自动更新 (Watchtower) ---
-  watchtower:
-    image: containrrr/watchtower:latest
-    container_name: watchtower
-    restart: unless-stopped
-    environment:
-      - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_SCHEDULE=0 0 4 * * *
-      - DOCKER_API_VERSION=1.44
-      - WATCHTOWER_NOTIFICATION_URL=${WATCHTOWER_NOTIFICATION_URL:-}
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+
 
   # =========================================================================
   # Layer 1: 核心业务 (Business Logic)
