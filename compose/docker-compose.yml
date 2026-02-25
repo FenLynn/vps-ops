@@ -211,6 +211,9 @@ services:
     environment:
       - HTTP_PROXY=http://unblock-netease:8080
       - HTTPS_PROXY=http://unblock-netease:8080
+      # unblock-netease 做 HTTPS MITM 时用自签名证书，Node.js 需要关闭证书验证才能接受
+      # 这是容器内部可信代理的标准做法，安全可接受
+      - NODE_TLS_REJECT_UNAUTHORIZED=0
       - ENABLE_FLAC=true
     logging:
       driver: "json-file"
