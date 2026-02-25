@@ -336,9 +336,10 @@ services:
       # 挂载 Docker socket 以支持自动发现容器和读取容器实时状态
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
-      # ⚠️ 允许经过 Nginx/Cloudflare Tunnel 代理的非标准 Host 访问，解决 Host Validation 错误
+      # ⚠️ 针对 Homepage 和 CF Tunnel Proxy 的配置
+      # https://gethomepage.dev/latest/installation/docker/
       - PORT=3000
-      - TRUST_PROXY=true
+      - HOMEPAGE_VAR_TRUST_PROXY=1
     logging:
       driver: "json-file"
       options:
