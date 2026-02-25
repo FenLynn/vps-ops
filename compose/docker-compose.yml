@@ -305,6 +305,8 @@ services:
   # =========================================================================
 
   # --- Dockge (容器管理) ---
+  # ⚠️ Dockge 只"认"自己创建的栈，本项目通过 SSH/CI 拉起，在面板中会显示为外部/孤儿状态，这是 Dockge 的设计行为，无法规避。
+  # 实际用途：用 Dockge 查看容器日志、执行 Bash、监控状态，不期望它直接管理本栈的生命周期。
   dockge:
     image: ghcr.io/fenlynn/dockge:1
     container_name: dockge
@@ -312,10 +314,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${BASE_DIR:-/opt/vps-dmz}/data/dockge:/app/data
-      # 挂载整个项目目录为 Dockge 中的 "vps-dmz" 栈（与你外层的目录名保持一致）
-      - ${BASE_DIR:-/opt/vps-dmz}:/app/stacks/vps-dmz
     environment:
-      # 回归默认，Dockge 会扫描此目录下的子文件夹作为栈
       - DOCKGE_STACKS_DIR=/app/stacks
     logging:
       driver: "json-file"
