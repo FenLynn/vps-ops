@@ -336,10 +336,9 @@ services:
       # 挂载 Docker socket 以支持自动发现容器和读取容器实时状态
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
-      # ⚠️ 针对 Homepage 和 CF Tunnel Proxy 的配置
-      # https://gethomepage.dev/latest/installation/docker/
-      - PORT=3000
-      - HOMEPAGE_VAR_TRUST_PROXY=1
+      # ✅ 官方正确配置：显式声明允许访问的主机名，解决 CF Tunnel 下的 Host Validation 错误
+      # 参考：https://gethomepage.dev/installation/docker/
+      - HOMEPAGE_ALLOWED_HOSTS=home.660415.xyz
     logging:
       driver: "json-file"
       options:
