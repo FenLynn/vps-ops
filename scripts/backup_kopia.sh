@@ -26,7 +26,7 @@ MAX_RETRIES=3
 RETRY_WAIT=60
 
 # 需要暂停的容器列表 (含 SQLite 数据库的服务)
-PAUSE_CONTAINERS="new-api uptime-kuma"
+PAUSE_CONTAINERS="uptime-kuma"
 
 # ─── 安全网: 确保容器在任何情况下都会恢复 ─────────────────────────────────────
 cleanup() {
