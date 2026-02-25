@@ -184,30 +184,15 @@ services:
       - vps_tunnel_net
     # 🚫 无端口暴露，通过 CF Tunnel 访问
 
-  # --- 网易云解灰代理 ---
-  unblock-netease:
-    image: ghcr.io/fenlynn/unblock-netease-music-enhanced:latest
-    container_name: unblock-netease
-    restart: unless-stopped
-    # 指定国内音源优先，避免尝试境外源（YouTube 等）时超时导致 ECONNRESET
-    command: ["-p", "8080:8081", "-o", "pyncmd", "kugou", "kuwo", "migu", "bilibili"]
-    environment:
-      - NODE_ENV=production
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - vps_tunnel_net
+
 
   # --- YesPlayMusic 后端 API ---
   music-api:
     image: ${MUSIC_API_IMAGE:-ghcr.io/fenlynn/netease_cloud_music_api:latest}
     container_name: music-api
     restart: unless-stopped
-    # 原版 NeteaseCloudMusicApi 不支持 HTTP_PROXY（会导致进程崩溃），直连网易云
-    # 阿里云 ECS 在国内直连无问题；解灰需更换支持 ENABLE_GENERAL_UNBLOCK 的镜像版本
+    # 直连网易云，阿里云 ECS 国内直连无问题
+    # 防滥用：建议在 CF WAF 配置 Referer 限制（见文档）
     environment:
       - ENABLE_FLAC=true
     logging:
@@ -215,11 +200,9 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    depends_on:
-      - unblock-netease
     networks:
       - vps_tunnel_net
-    # 🚫 无端口暴露，通过 CF Tunnel 访问
+    # 🚫 无端口暴露，通过 CF Tunnel 访问 (music-api.660415.xyz)
 
   # --- Nginx Relay (公私网桥接 → NAS) ---
   nginx-relay:
@@ -349,9 +332,10 @@ services:
     container_name: music-web
     restart: unless-stopped
     environment:
-      # 这个环境变量控制前端往哪里发请求。注意：这里必须填包含域名的公网 URL (由 Nginx 反代)
-      - VUE_APP_NETEASE_API_URL=https://music.660415.xyz/api
-      - NETEASE_API_URL=https://music.660415.xyz/api/
+      # 双子域名直连架构：前端直接调用 music-api 子域名，绕过 nginx-relay
+      # music-api.660415.xyz 在 CF Access 中设为 bypass（无需登录）
+      - VUE_APP_NETEASE_API_URL=https://music-api.660415.xyz
+      - NETEASE_API_URL=https://music-api.660415.xyz
     logging:
       driver: "json-file"
       options:
