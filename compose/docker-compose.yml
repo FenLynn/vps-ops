@@ -197,7 +197,8 @@ services:
   # --- FastAPI 统一网关 ---
   fastapi-gateway:
     build:
-      context: ${BASE_DIR:-/opt/vps-dmz}/config/fastapi-gateway
+      # 改为相对路径，无论在宿主机还是 Dockge 容器内，只要是当前栈目录都能找到
+      context: ./config/fastapi-gateway
       dockerfile: Dockerfile
     image: vps-ops/fastapi-gateway:latest
     pull_policy: build
