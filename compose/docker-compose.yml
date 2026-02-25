@@ -260,7 +260,7 @@ services:
       - /bin/sh
       - -c
       - |
-              echo '🚀 Kopia 启动...';
+        echo '🚀 Kopia 启动...';
         if [ -z "$KOPIA_PASSWORD" ]; then echo '❌ KOPIA_PASSWORD 未设置!'; exit 1; fi;
         kopia repository connect webdav --url="$WEBDAV_URL" --webdav-username="$WEBDAV_USER" --webdav-password="$WEBDAV_PASS" --override-hostname=vps-backup --override-username=root || kopia repository create webdav --url="$WEBDAV_URL" --webdav-username="$WEBDAV_USER" --webdav-password="$WEBDAV_PASS" --override-hostname=vps-backup --override-username=root;
         kopia policy set --global --keep-daily 7 --keep-weekly 4 --keep-monthly 6;
