@@ -189,8 +189,8 @@ services:
     image: ghcr.io/fenlynn/unblock-netease-music-enhanced:latest
     container_name: unblock-netease
     restart: unless-stopped
-#    command: ["-p", "8080", "-s", "-e"]   # 👈 必须补上这一行！(开启严格模式与前端端点模式)
-    command: ["-p", "8080:8081"]
+    # 指定国内音源优先，避免尝试境外源（YouTube 等）时超时导致 ECONNRESET
+    command: ["-p", "8080:8081", "-o", "pyncmd", "kugou", "kuwo", "migu", "bilibili"]
     environment:
       - NODE_ENV=production
     logging:
@@ -206,11 +206,12 @@ services:
     image: ${MUSIC_API_IMAGE:-ghcr.io/fenlynn/netease_cloud_music_api:latest}
     container_name: music-api
     restart: unless-stopped
-    # 使用 music-api 应用层参数解灰，不使用系统级 HTTP_PROXY（会导致 ECONNRESET）
+    # 原版 NeteaseCloudMusicApi 只认系统级 HTTP_PROXY，不支持 ENABLE_* 扩展参数
+    # 通过 unblock-netease 代理解灰；国内源配置后不再 ECONNRESET
     environment:
-      - ENABLE_GENERAL_UNBLOCK=true   # 内置自动解灰，覆盖大多数灰色歌曲
-      - ENABLE_FLAC=true              # 允许请求无损 FLAC 音质
-      - ENABLE_LOCAL_VIP=cvip         # 本地 CVIP，解锁 VIP 专属曲目
+      - HTTP_PROXY=http://unblock-netease:8080
+      - HTTPS_PROXY=http://unblock-netease:8080
+      - ENABLE_FLAC=true
     logging:
       driver: "json-file"
       options:
