@@ -1,80 +1,111 @@
-name: Sync Docker Hub Images to GHCR
+name: 📦 手动同步 Docker 镜像至 GHCR
 
+# 仅允许手动触发
 on:
   workflow_dispatch:
   schedule:
     - cron: '0 4 * * 1' # 每周一自动向你的 GHCR 兜底同步更新一次
 
-env:
-  REGISTRY: ghcr.io
-  # GitHub 强制要求仓库 namespace 为全小写
-  OWNER: fenlynn
-
 jobs:
-  sync-to-ghcr:
+  sync-images:
     runs-on: ubuntu-latest
+    environment: Production
     permissions:
       contents: read
       packages: write
+
     steps:
-      - name: 1. Log in to the GitHub Container Registry
+      - name: 1. 登录到 GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: 2. Pull, Retag and Push Images
+
+      - name: 2. 批量中转并推送镜像 (已存在则跳过)
         run: |
-          # 注意：以下列表必须只包含从外界 Docker Hub 抓取的“他源”镜像！
-          # 对于本来就在你 GitHub 自动构建的（如 derper, kopia, unblock-netease），不要放入此表！
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+
+          echo "🚀 正在搬运镜像到 ghcr.io/${OWNER}..."
+
+          # 格式: "源镜像|目标镜像(不含 ghcr.io/${OWNER}/ 前缀)"
+          # 有版本要求的镜像请锁定具体版本号，latest 镜像每次也会检查
           IMAGES=(
-            "docker.io/qier222/yesplaymusic:latest|yesplaymusic:latest"
-            "docker.io/cloudflare/cloudflared:latest|cloudflared:latest"
-            "docker.io/neilpang/acme.sh:latest|acme.sh:latest"
-            "docker.io/louislam/uptime-kuma:1|uptime-kuma:1"
-            "docker.io/louislam/dockge:1|dockge:1"
-            "docker.io/library/nginx:alpine|nginx:alpine"
-            "docker.io/calciumion/new-api:latest|new-api:latest"
-            "docker.io/binaryify/netease_cloud_music_api:latest|netease_cloud_music_api:latest"
+            "qier222/yesplaymusic:latest|yesplaymusic:latest"
+            "cloudflare/cloudflared:latest|cloudflared:latest"
+            "neilpang/acme.sh:latest|acme.sh:latest"
+            "louislam/uptime-kuma:1|uptime-kuma:1"
+            "louislam/dockge:1|dockge:1"
+            "nginx:alpine|nginx:alpine"
+            "calciumion/new-api:latest|new-api:latest"
+            "binaryify/netease_cloud_music_api:latest|netease_cloud_music_api:latest"
           )
-          
+
           for item in "${IMAGES[@]}"; do
-            SOURCE_IMG="${item%%|*}"
-            TARGET_IMG_NAME="${item##*|}"
-            TARGET_IMG="${{ env.REGISTRY }}/${{ env.OWNER }}/$TARGET_IMG_NAME"
-            
-            # 防御性过滤：如果配置项本身就是 ghcr.io 开头的官方仓来源，则直接跳过！防止套娃
-            if [[ "$SOURCE_IMG" == ghcr.io/* ]]; then
-              echo "⏭️ 跳过原生 GHCR 镜像: $SOURCE_IMG"
+            SRC="${item%%|*}"
+            DST_SHORT="${item##*|}"
+            DST="ghcr.io/${OWNER}/${DST_SHORT}"
+
+            echo ""
+            echo "── 检查: ${DST}"
+
+            # 使用 manifest inspect 检查镜像是否已存在于 GHCR
+            # --insecure 防止网络问题误报，失败则继续拉取
+            if docker manifest inspect "${DST}" > /dev/null 2>&1; then
+              echo "  ✅ 已存在，跳过: ${DST}"
               continue
             fi
-            echo "----------------------------------------"
-            echo "🚀 智能同步: $SOURCE_IMG -> $TARGET_IMG"
-            
-            # 使用 skopeo 代替 docker pull/push
-            # --all 会原封不动地拷贝多架构 (Multi-arch) 的所有底层架构层
-            # skopeo 最大的特点是：如果目标仓库层的指纹 (Digest) 与源仓库相同，它会瞬间秒跳过，绝不重复下载/上传！
-            skopeo copy --all docker://$SOURCE_IMG docker://$TARGET_IMG --dest-creds ${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}
-            
-            echo "✅ $TARGET_IMG 处理结束"
+
+            echo "  🔄 不存在，开始搬运: ${SRC} -> ${DST}"
+            docker pull "${SRC}"
+            docker tag "${SRC}" "${DST}"
+            docker push "${DST}"
+            echo "  ✅ 推送完成: ${DST}"
           done
 
-      - name: 3. Trigger VPS to Pull and Update
-        uses: appleboy/ssh-action@v0.1.10
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: root
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
-            echo "1. 触发 VPS 从刚刚同步好的 GHCR 拉取全量更新..."
-            cd /opt/vps-dmz/compose
-            docker-compose pull
-            
-            echo "2. 重启改变的容器并移除孤儿..."
-            docker-compose up -d --remove-orphans
-            
-            echo "3. 清理 VPS 旧镜像..."
-            docker image prune -f
-            
-            echo "🎉 GHCR 的转存与拉取更新全面完成！"
+          echo ""
+          echo "🎉 所有镜像同步完毕！"
+
+      - name: 3. 自动将容器镜像设为公开 (Public)
+        env:
+          # 注意: 不能使用 GH_TOKEN 作为变量名，它是 gh CLI 的保留变量会被内置 GITHUB_TOKEN 覆盖
+          GHCR_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          if [ -z "$GHCR_TOKEN" ]; then
+            echo "⚠️  警告: 未发现 secrets.GH_TOKEN，跳过自动公开步骤。"
+            echo "💡 请手动执行：GitHub -> Packages -> 进入包 -> Package Settings -> Change Visibility -> Public"
+            exit 0
+          fi
+
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+
+          # 所有需要设为公开的包名列表
+          PACKAGES=(
+            yesplaymusic
+            cloudflared
+            acme.sh
+            uptime-kuma
+            dockge
+            nginx
+            new-api
+            netease_cloud_music_api
+          )
+
+          for pkg in "${PACKAGES[@]}"; do
+            echo "🌐 正在将 ${pkg} 设为 Public..."
+            GH_TOKEN="$GHCR_TOKEN" gh api \
+              --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "/user/packages/container/${pkg}/manage_visibility" \
+              -f visibility='public' || \
+            GH_TOKEN="$GHCR_TOKEN" gh api \
+              --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "/orgs/${OWNER}/packages/container/${pkg}/manage_visibility" \
+              -f visibility='public' || \
+            echo "  ⚠️ ${pkg} 自动公开失败，请手动操作: GitHub -> Packages -> 进入包 -> Package Settings -> Change Visibility -> Public"
+          done
+
+          echo "💡 如果自动设置依然失败，请务必手动执行：GitHub -> Packages -> 进入包 -> Package Settings -> Change Visibility -> Public"
