@@ -351,6 +351,7 @@ services:
     environment:
       # 这个环境变量控制前端往哪里发请求。注意：这里必须填包含域名的公网 URL (由 Nginx 反代)
       - VUE_APP_NETEASE_API_URL=https://music.660415.xyz/api
+      - NETEASE_API_URL=https://music.660415.xyz/api/
     logging:
       driver: "json-file"
       options:
