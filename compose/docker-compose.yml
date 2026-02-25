@@ -150,41 +150,6 @@ services:
     networks:
       - vps_tunnel_net
 
-  # --- New API (AI 接口网关) ---
-  new-api:
-    image: ghcr.io/fenlynn/new-api:latest
-    container_name: new-api
-    restart: unless-stopped
-    volumes:
-      - ${BASE_DIR:-/opt/vps-dmz}/data/new-api:/data
-      - ${BASE_DIR:-/opt/vps-dmz}/logs/new-api:/logs
-    environment:
-      # SQLite 模式：主库在 /data，日志库隔离到 /logs
-      - DB_TYPE=sqlite
-      #- SQL_DSN=/data/new-api.db
-      #- LOG_SQL_DSN=/logs/api-log.db
-      - NODE_TYPE=master
-      - CHANNEL_UPDATE_FREQUENCY=30
-      - BATCH_UPDATE_ENABLED=true
-      - GLOBAL_API_RATE_LIMIT=180
-      - GLOBAL_WEB_RATE_LIMIT=60
-      - INITIAL_ROOT_TOKEN=${NEW_API_ADMIN_PASSWORD:-}
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/status || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"   # 单个日志文件最大 10MB
-        max-file: "3"     # 最多保留 3 个滚动文件
-
-    networks:
-      - vps_tunnel_net
-    # 🚫 无端口暴露，通过 CF Tunnel 访问
-
-
 
   # --- YesPlayMusic 后端 API ---
   music-api:
@@ -241,7 +206,6 @@ services:
     environment:
       # Token 鉴权 (保护 /ops/* 路由，替代旧的 FASTAPI_SECRET_KEY)
       - VPS_TOKEN=${VPS_TOKEN:?VPS_TOKEN is required}
-      - NEW_API_URL=http://new-api:3000
       - MUSIC_API_URL=http://music-api:3000
       - NGINX_RELAY_URL=http://nginx-relay:80
     logging:
@@ -251,7 +215,6 @@ services:
         max-file: "3"
     depends_on:
       - cloudflared
-      - new-api
     networks:
       - vps_tunnel_net
     # 🚫 无端口暴露，通过 CF Tunnel 访问
@@ -290,32 +253,20 @@ services:
       - kopia-config:/app/config
     environment:
       - KOPIA_PASSWORD=${KOPIA_PASSWORD:?KOPIA_PASSWORD is required}
-    entrypoint: |
-      /bin/sh -c "
-      echo '🚀 Kopia 启动...';
-      if [ -z \"$$KOPIA_PASSWORD\" ]; then echo '❌ KOPIA_PASSWORD 未设置!'; exit 1; fi;
+      - WEBDAV_URL=${WEBDAV_URL}
+      - WEBDAV_USER=${WEBDAV_USER}
+      - WEBDAV_PASS=${WEBDAV_PASS}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+              echo '🚀 Kopia 启动...';
+        if [ -z "$KOPIA_PASSWORD" ]; then echo '❌ KOPIA_PASSWORD 未设置!'; exit 1; fi;
+        kopia repository connect webdav --url="$WEBDAV_URL" --webdav-username="$WEBDAV_USER" --webdav-password="$WEBDAV_PASS" --override-hostname=vps-backup --override-username=root || kopia repository create webdav --url="$WEBDAV_URL" --webdav-username="$WEBDAV_USER" --webdav-password="$WEBDAV_PASS" --override-hostname=vps-backup --override-username=root;
+        kopia policy set --global --keep-daily 7 --keep-weekly 4 --keep-monthly 6;
+        echo '✅ Kopia 就绪，等待外部 backup_kopia.sh 触发快照...';
+        tail -f /dev/null
 
-      # 连接或创建仓库
-      kopia repository connect webdav \
-        --url=${WEBDAV_URL} \
-        --webdav-username=${WEBDAV_USER} \
-        --webdav-password=${WEBDAV_PASS} \
-        --override-hostname=vps-backup \
-        --override-username=root || \
-      kopia repository create webdav \
-        --url=${WEBDAV_URL} \
-        --webdav-username=${WEBDAV_USER} \
-        --webdav-password=${WEBDAV_PASS} \
-        --override-hostname=vps-backup \
-        --override-username=root;
-
-      # 全局保留策略
-      kopia policy set --global --keep-daily 7 --keep-weekly 4 --keep-monthly 6;
-
-      echo '✅ Kopia 就绪，等待外部 backup_kopia.sh 触发快照...';
-      # 保持容器运行，由宿主机 crontab 调用 docker exec 触发备份
-      tail -f /dev/null
-      "
     logging:
       driver: "json-file"
       options:
