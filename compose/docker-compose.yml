@@ -21,7 +21,7 @@ services:
 
   # --- Cloudflare Tunnel (安全入口) ---
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: ghcr.io/fenlynn/cloudflared:latest
     container_name: cloudflared
     restart: unless-stopped
     command: tunnel run --token ${CF_TOKEN:?CF_TOKEN is required}
@@ -40,7 +40,7 @@ services:
 
   # --- 证书管理 (acme.sh daemon 常驻) ---
   acme:
-    image: neilpang/acme.sh:latest
+    image: ghcr.io/fenlynn/acme.sh:latest
     container_name: acme
     restart: unless-stopped
     command: daemon
@@ -58,7 +58,7 @@ services:
 
   # --- 首次证书签发 (一次性任务) ---
   acme-init:
-    image: neilpang/acme.sh:latest
+    image: ghcr.io/fenlynn/acme.sh:latest
     container_name: acme-init
     depends_on:
       - acme
@@ -152,7 +152,7 @@ services:
 
   # --- New API (AI 接口网关) ---
   new-api:
-    image: calciumion/new-api:latest
+    image: ghcr.io/fenlynn/new-api:latest
     container_name: new-api
     restart: unless-stopped
     volumes:
@@ -203,7 +203,7 @@ services:
 
   # --- YesPlayMusic 后端 API ---
   music-api:
-    image: ${MUSIC_API_IMAGE:-binaryify/netease_cloud_music_api:latest}
+    image: ${MUSIC_API_IMAGE:-ghcr.io/fenlynn/netease_cloud_music_api:latest}
     container_name: music-api
     restart: unless-stopped
     environment:
@@ -223,7 +223,7 @@ services:
 
   # --- Nginx Relay (公私网桥接 → NAS) ---
   nginx-relay:
-    image: nginx:alpine
+    image: ghcr.io/fenlynn/nginx:alpine
     container_name: nginx-relay
     restart: unless-stopped
     volumes:
@@ -275,7 +275,7 @@ services:
 
   # --- Uptime Kuma (监控面板) ---
   uptime-kuma:
-    image: louislam/uptime-kuma:1
+    image: ghcr.io/fenlynn/uptime-kuma:1
     container_name: uptime-kuma
     restart: unless-stopped
     volumes:
@@ -345,7 +345,7 @@ services:
 
   # --- YesPlayMusic 纯前端页面 ---
   music-web:
-    image: qier222/yesplaymusic:latest
+    image: ghcr.io/fenlynn/yesplaymusic:latest
     container_name: music-web
     restart: unless-stopped
     environment:
@@ -368,7 +368,7 @@ services:
 
   # --- Dockge (容器管理) ---
   dockge:
-    image: louislam/dockge:1
+    image: ghcr.io/fenlynn/dockge:1
     container_name: dockge
     restart: unless-stopped
     volumes:

@@ -1,84 +1,76 @@
-name: Sync Docker Images to VPS (Offline Mode)
+name: Sync Docker Hub Images to GHCR
 
 on:
   workflow_dispatch:
-    inputs:
-      force_clean:
-        description: '完成后是否清理 VPS 上的旧悬空镜像 (true/false)'
-        required: true
-        default: 'true'
+  schedule:
+    - cron: '0 4 * * 1' # 每周一自动向你的 GHCR 兜底同步更新一次
+
+env:
+  REGISTRY: ghcr.io
+  # GitHub 强制要求仓库 namespace 为全小写
+  OWNER: fenlynn
 
 jobs:
-  sync-and-deploy:
+  sync-to-ghcr:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - name: 1. Setup Docker Environment
-        run: |
-          # 确保 Github 机器上的 Docker 空间充足
-          docker system prune -af
-
-      - name: 2. Pull Required Images (Define Tags Here)
-        run: |
-          # 💡 在这里定义你要拉取的镜像清单与其 Tag！
-          # 修改这里的版本号即可决定阿里云跑的是什么版本
+      - name: 1. Log in to the GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
           
+      - name: 2. Pull, Retag and Push Images
+        run: |
+          # 格式: 源镜像名称|推送到 GHCR 后的末尾名称 (不要带 fenlynn)
           IMAGES=(
-            "qier222/yesplaymusic:latest"
-            "cloudflare/cloudflared:latest"
-            "neilpang/acme.sh:latest"
-            "louislam/uptime-kuma:1"
-            "louislam/dockge:1"
-            "nginx:alpine"
-            "calciumion/new-api:latest"
-            "ghcr.io/fenlynn/unblock-netease-music-enhanced:latest"
-            "binaryify/netease_cloud_music_api:latest"
-            "ghcr.io/fenlynn/derper:latest"
-            "ghcr.io/ajnart/homarr:latest"
-            "ghcr.io/fenlynn/kopia:latest"
+            "qier222/yesplaymusic:latest|yesplaymusic:latest"
+            "cloudflare/cloudflared:latest|cloudflared:latest"
+            "neilpang/acme.sh:latest|acme.sh:latest"
+            "louislam/uptime-kuma:1|uptime-kuma:1"
+            "louislam/dockge:1|dockge:1"
+            "nginx:alpine|nginx:alpine"
+            "calciumion/new-api:latest|new-api:latest"
+            "binaryify/netease_cloud_music_api:latest|netease_cloud_music_api:latest"
+            # 下面这些已经是 ghcr 源的，正常不用转，但防止源作者删库也可加入备份：
+            # "ghcr.io/ajnart/homarr:latest|homarr:latest"
           )
-
-          echo "开始拉取镜像列表..."
-          for img in "${IMAGES[@]}"; do
-            echo "Pulling $img..."
-            docker pull $img
+          
+          for item in "${IMAGES[@]}"; do
+            SOURCE_IMG="${item%%|*}"
+            TARGET_IMG_NAME="${item##*|}"
+            TARGET_IMG="${{ env.REGISTRY }}/${{ env.OWNER }}/$TARGET_IMG_NAME"
+            
+            echo "🚀 开始拉取: $SOURCE_IMG"
+            docker pull "$SOURCE_IMG"
+            
+            echo "🏷️ 打上新标签: $TARGET_IMG"
+            docker tag "$SOURCE_IMG" "$TARGET_IMG"
+            
+            echo "📤 推送到私有/公有 GHCR..."
+            docker push "$TARGET_IMG"
+            echo "----------------------------------------"
           done
 
-          echo "将所有镜像打包成单个压缩归档..."
-          # docker save 支持传入多个镜像名称，一次性打包
-          docker save "${IMAGES[@]}" | gzip > offline-images.tar.gz
-          echo "打包完成！大小："
-          ls -lh offline-images.tar.gz
-
-      - name: 3. Transfer Archive to VPS via SSH
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: root
-          key: ${{ secrets.VPS_SSH_KEY }}
-          source: "offline-images.tar.gz"
-          target: "/opt/vps-dmz/temp/"
-          overwrite: true
-
-      - name: 4. Unpack, Start and Clean on VPS
+      - name: 3. Trigger VPS to Pull and Update
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.VPS_HOST }}
           username: root
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            echo "1. 导入离线镜像..."
-            docker load < /opt/vps-dmz/temp/offline-images.tar.gz
-            
-            echo "2. 使用新镜像拉起容器并移除孤儿..."
+            echo "1. 触发 VPS 从刚刚同步好的 GHCR 拉取全量更新..."
             cd /opt/vps-dmz/compose
+            docker-compose pull
+            
+            echo "2. 重启改变的容器并移除孤儿..."
             docker-compose up -d --remove-orphans
             
-            echo "3. 清理中转大文件..."
-            rm -f /opt/vps-dmz/temp/offline-images.tar.gz
+            echo "3. 清理 VPS 旧镜像..."
+            docker image prune -f
             
-            if [ "${{ github.event.inputs.force_clean }}" = "true" ]; then
-              echo "4. 强制清理悬空的旧版本垃圾镜像，释放磁盘空间..."
-              docker image prune -f
-            fi
-            
-            echo "🎉 全量离线同步与滚动更新圆满完成！"
+            echo "🎉 GHCR 的转存与拉取更新全面完成！"
