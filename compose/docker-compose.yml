@@ -335,6 +335,10 @@ services:
       - ${BASE_DIR:-/opt/vps-dmz}/data/homepage:/app/config
       # 挂载 Docker socket 以支持自动发现容器和读取容器实时状态
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      # ⚠️ 允许经过 Nginx/Cloudflare Tunnel 代理的非标准 Host 访问，解决 Host Validation 错误
+      - PORT=3000
+      - TRUST_PROXY=true
     logging:
       driver: "json-file"
       options:
