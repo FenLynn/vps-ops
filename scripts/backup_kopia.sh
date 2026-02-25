@@ -21,9 +21,7 @@ set -uo pipefail
 BASE_DIR="${BASE_DIR:-/opt/vps-dmz}"
 LOG_PREFIX="[Kopia Backup]"
 
-# 重试配置 (针对坚果云 WebDAV 限流)
-MAX_RETRIES=3
-RETRY_WAIT=60
+
 
 # 需要暂停的容器列表 (含 SQLite 数据库的服务)
 PAUSE_CONTAINERS="uptime-kuma"
@@ -51,39 +49,25 @@ for c in ${PAUSE_CONTAINERS}; do
     fi
 done
 
-# ─── 2. Snapshot: 精准快照 (带退避重试) ───────────────────────────────────────
+# ─── 2. Snapshot: 精准快照 (直连 Cloudflare R2) ──────────────────────────────
 echo "${LOG_PREFIX} [2/4] 创建快照..."
 
 SNAP_SUCCESS=false
-for attempt in $(seq 1 ${MAX_RETRIES}); do
-    echo "  📸 快照尝试 ${attempt}/${MAX_RETRIES}..."
 
-    # 通过 docker exec 调用 kopia (容器内执行)
-    # --parallel=1: 强制单线程上传，防止坚果云 WebDAV 限流 (HTTP 503)
-    # 排除 SQLite 临时文件 (.shm, .wal, -journal)
-    SNAP_OUTPUT=$(docker exec kopia kopia snapshot create /source \
-        --parallel=1 \
-        --log-level=warning \
-        2>&1)
-    SNAP_RC=$?
+# R2 对象存储无并发限制，全速打快照
+SNAP_OUTPUT=$(docker exec kopia kopia snapshot create /source \
+    --log-level=warning \
+    2>&1)
+SNAP_RC=$?
 
-    echo "${SNAP_OUTPUT}" | while read -r line; do echo "  ${line}"; done
+echo "${SNAP_OUTPUT}" | while read -r line; do echo "  ${line}"; done
 
-    if [ ${SNAP_RC} -eq 0 ]; then
-        SNAP_SUCCESS=true
-        echo "  ✅ 快照创建成功"
-        break
-    fi
-
-    # 检查是否为 WebDAV 限流 (5xx 错误)
-    if echo "${SNAP_OUTPUT}" | grep -qiE "(503|5[0-9]{2}|rate.?limit|too.?many|temporarily.?unavailable)"; then
-        echo "  ⚠️ 检测到 WebDAV 限流 (503)，等待 ${RETRY_WAIT} 秒后重试..."
-        sleep ${RETRY_WAIT}
-    else
-        echo "  ❌ 快照失败 (exit code: ${SNAP_RC})，非限流错误，不再重试"
-        break
-    fi
-done
+if [ ${SNAP_RC} -eq 0 ]; then
+    SNAP_SUCCESS=true
+    echo "  ✅ 快照创建成功"
+else
+    echo "  ❌ 快照失败 (exit code: ${SNAP_RC})"
+fi
 
 # ─── 3. Post-thaw: 恢复容器 (由 trap 保障，此处显式执行) ─────────────────────
 echo "${LOG_PREFIX} [3/4] 恢复容器..."

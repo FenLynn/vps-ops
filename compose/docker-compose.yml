@@ -240,7 +240,7 @@ services:
       - vps_tunnel_net
     # 🚫 无端口暴露，通过 CF Tunnel 访问
 
-  # --- Kopia 备份 (增量备份到 WebDAV) ---
+  # --- Kopia 备份 (增量备份到 Cloudflare R2) ---
   kopia:
     image: ${KOPIA_IMAGE:-ghcr.io/fenlynn/kopia:latest}
     container_name: kopia
@@ -253,16 +253,17 @@ services:
       - kopia-config:/app/config
     environment:
       - KOPIA_PASSWORD=${KOPIA_PASSWORD:?KOPIA_PASSWORD is required}
-      - WEBDAV_URL=${WEBDAV_URL}
-      - WEBDAV_USER=${WEBDAV_USER}
-      - WEBDAV_PASS=${WEBDAV_PASS}
+      - R2_BUCKET=${R2_BUCKET}
+      - R2_ENDPOINT_URL=${R2_ENDPOINT_URL}
+      - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
+      - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
     entrypoint:
       - /bin/sh
       - -c
       - |
-        echo '🚀 Kopia 启动...';
+        echo '🚀 Kopia 启动 (Cloudflare R2 版本)...';
         if [ -z "$KOPIA_PASSWORD" ]; then echo '❌ KOPIA_PASSWORD 未设置!'; exit 1; fi;
-        kopia repository connect webdav --url="$WEBDAV_URL" --webdav-username="$WEBDAV_USER" --webdav-password="$WEBDAV_PASS" --override-hostname=vps-backup --override-username=root || kopia repository create webdav --url="$WEBDAV_URL" --webdav-username="$WEBDAV_USER" --webdav-password="$WEBDAV_PASS" --override-hostname=vps-backup --override-username=root;
+        kopia repository connect s3 --bucket="$R2_BUCKET" --endpoint="$R2_ENDPOINT_URL" --access-key="$R2_ACCESS_KEY_ID" --secret-access-key="$R2_SECRET_ACCESS_KEY" --override-hostname=vps-backup --override-username=root || kopia repository create s3 --bucket="$R2_BUCKET" --endpoint="$R2_ENDPOINT_URL" --access-key="$R2_ACCESS_KEY_ID" --secret-access-key="$R2_SECRET_ACCESS_KEY" --override-hostname=vps-backup --override-username=root;
         kopia policy set --global --keep-daily 7 --keep-weekly 4 --keep-monthly 6;
         echo '✅ Kopia 就绪，等待外部 backup_kopia.sh 触发快照...';
         tail -f /dev/null
