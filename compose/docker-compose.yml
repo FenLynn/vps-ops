@@ -324,15 +324,16 @@ services:
       - vps_tunnel_net
     # 🚫 无端口暴露，通过 CF Tunnel + Access 访问
 
-  # --- Homarr (导航仪表盘) ---
-  # 提示：如果依然觉得不好用或数据容易重置，建议执行 docker compose down -v 彻底清理后重新拉起。
-  homarr:
-    image: ghcr.io/fenlynn/homarr:latest
-    container_name: homarr
+  # --- Homepage (极客导航仪表盘) ---
+  # 纯静态、配置即代码、高颜值的极客导航页。支持深度对接 Docker 和 NAS 的 API。
+  homepage:
+    image: ghcr.io/fenlynn/homepage:latest
+    container_name: homepage
     restart: unless-stopped
     volumes:
-      # 修复持久化：核心数据必须完整挂载 /app/data，否则配置不会保存
-      - ${BASE_DIR:-/opt/vps-dmz}/data/homarr:/app/data
+      # 🔧 所有的配置(services.yaml, widgets.yaml等)都会生成并保存在这个纯文本文件夹里
+      - ${BASE_DIR:-/opt/vps-dmz}/data/homepage:/app/config
+      # 挂载 Docker socket 以支持自动发现容器和读取容器实时状态
       - /var/run/docker.sock:/var/run/docker.sock:ro
     logging:
       driver: "json-file"
@@ -341,7 +342,7 @@ services:
         max-file: "2"
     networks:
       - vps_tunnel_net
-    # 🚫 无端口暴露，通过 CF Tunnel + Access 访问
+    # 🚫 无端口暴露，通过 CF Tunnel + Access 访问 (Homepage 容器内运行在 3000 端口)
 
 # =============================================================================
 # 网络定义

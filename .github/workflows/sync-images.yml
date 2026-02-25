@@ -30,13 +30,15 @@ jobs:
 
           # 格式: "源镜像|目标镜像(不含 ghcr.io/${OWNER}/ 前缀)"
           # 有版本要求的镜像请锁定具体版本号，latest 镜像每次也会检查
+          # 格式: "源镜像|目标镜像(不含 ghcr.io/${OWNER}/ 前缀)"
+          # 有版本要求的镜像请锁定具体版本号，latest 镜像每次也会检查
           IMAGES=(
             "fogforest/yesplaymusic:latest|yesplaymusic:latest"
             "cloudflare/cloudflared:latest|cloudflared:latest"
             "neilpang/acme.sh:latest|acme.sh:latest"
             "louislam/uptime-kuma:1|uptime-kuma:1"
             "amir20/dozzle:latest|dozzle:latest"
-            "ajnart/homarr:latest|homarr:latest"
+            "ghcr.io/gethomepage/homepage:latest|homepage:latest"
             "nginx:alpine|nginx:alpine"
             "binaryify/netease_cloud_music_api:latest|netease_cloud_music_api:latest"
           )
@@ -86,7 +88,7 @@ jobs:
             acme.sh
             uptime-kuma
             dozzle
-            homarr
+            homepage
             nginx
             netease_cloud_music_api
           )
