@@ -562,6 +562,16 @@ if [ "${AUTO_RESTORE_FROM_R2:-true}" = "true" ] && [ -n "${R2_BUCKET:-}" ]; then
         echo "  - ⏳ 等待 Kopia 与 R2 建立握手 (15秒)..."
         sleep 15
         
+        # 🚨 终极防爆红线：检查容器内 Kopia 是否真正连入了 R2
+        if ! docker exec kopia kopia repository status >/dev/null 2>&1; then
+            echo "  ❌ 致命错误：Kopia 无法连接至 R2 仓库！"
+            echo "     为防止空载重置导致现有云端备份毁损或覆盖，部署程序已被安全拦截点紧急阻断！"
+            echo "     👉 请使用命令 \`docker logs kopia\` 检查您的 R2 密钥或 Endpoint 链接！"
+            send_pushplus "[VPS-致命告警] R2 库连接失败" "开荒程序尝试连入 R2 灾备库时遭到拒绝，底层网络或凭证可能存在问题。<br/>为防止您的旧数据被零覆盖，整个开荒/重构部署已被强制终止挂起！<br/>请连接服务器查看 \`docker logs kopia\`。"
+            docker compose stop kopia 2>/dev/null || true
+            exit 1
+        fi
+        
         # 提取云端最新一次快照的 ID
         LATEST_SNAP=$(docker exec kopia kopia snapshot list --json 2>/dev/null | jq -r '.[-1].id')
         

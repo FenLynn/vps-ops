@@ -258,16 +258,29 @@ services:
       - R2_ENDPOINT_URL=${R2_ENDPOINT_URL}
       - R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
       - R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
+      - KOPIA_CONFIG_PATH=/app/config/repository.config
+      - KOPIA_CACHE_DIRECTORY=/app/cache
     entrypoint:
       - /bin/sh
       - -c
       - |
         echo '🚀 Kopia 启动 (Cloudflare R2 版本)...';
         if [ -z "$KOPIA_PASSWORD" ]; then echo '❌ KOPIA_PASSWORD 未设置!'; exit 1; fi;
-        kopia repository connect s3 --bucket="$R2_BUCKET" --endpoint="$R2_ENDPOINT_URL" --access-key="$R2_ACCESS_KEY_ID" --secret-access-key="$R2_SECRET_ACCESS_KEY" --override-hostname=vps-backup --override-username=root || kopia repository create s3 --bucket="$R2_BUCKET" --endpoint="$R2_ENDPOINT_URL" --access-key="$R2_ACCESS_KEY_ID" --secret-access-key="$R2_SECRET_ACCESS_KEY" --override-hostname=vps-backup --override-username=root;
+        echo '⏳ 尝试连接到已有 R2 仓库...';
+        if kopia repository connect s3 --bucket="$$R2_BUCKET" --endpoint="$$R2_ENDPOINT_URL" --access-key="$$R2_ACCESS_KEY_ID" --secret-access-key="$$R2_SECRET_ACCESS_KEY" --override-hostname=vps-backup --override-username=root; then
+            echo '✅ 已成功连入 R2 灾备库！';
+        else
+            echo '⚠️ 现有仓库连接失败 (若为空库属正常)。尝试初始化新仓库...';
+            if kopia repository create s3 --bucket="$$R2_BUCKET" --endpoint="$$R2_ENDPOINT_URL" --access-key="$$R2_ACCESS_KEY_ID" --secret-access-key="$$R2_SECRET_ACCESS_KEY" --override-hostname=vps-backup --override-username=root; then
+                echo '✅ 全新 R2 仓库初始化成功！';
+            else
+                echo '❌ 致命错误：R2 仓库连接与创建均失败！请检查你的 R2 API 令牌和 Endpoint URL！';
+                exit 1;
+            fi
+        fi
         kopia policy set --global --keep-daily 7 --keep-weekly 4 --keep-monthly 6;
         echo '✅ Kopia 就绪，等待外部 backup_kopia.sh 触发快照...';
-        tail -f /dev/null
+        exec tail -f /dev/null
 
     logging:
       driver: "json-file"
