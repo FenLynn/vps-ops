@@ -91,8 +91,8 @@ services:
         rm -rf /acme.sh/$$DERP_DOMAIN/*;
         /entry.sh --issue --server $$ACME_SERVER -d $$DERP_DOMAIN --dns dns_cf --keylength ec-256;
         mkdir -p /acme.sh/$$DERP_DOMAIN;
-        /entry.sh --install-cert -d $$DERP_DOMAIN --ecc \\
-          --cert-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt \\
+        /entry.sh --install-cert -d $$DERP_DOMAIN --ecc \
+          --cert-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt \
           --key-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.key;
         # 回退: 从 _ecc 目录强制拷贝
         if [ ! -s /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt ]; then
