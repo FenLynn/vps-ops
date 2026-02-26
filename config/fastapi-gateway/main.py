@@ -1,36 +1,61 @@
 """
-VPS-OPS v2.1 — FastAPI 统一 API 网关
+VPS-OPS v2.2 — FastAPI 统一 API 网关
 =============================================================================
-路由规划:
-  /music/{path}  → music-api:3000     (音乐 API，流式大文件透传，60s 超时)
-  /webhook/{path}→ nginx-relay:80     (NAS Webhook 转发，30s 超时)
-  /ops/quant/signal   → 本地业务逻辑  (A股量化信号接收，Token 鉴权)
-  /ops/research/paper → 本地业务逻辑  (科研文献归档，Token 鉴权)
+路由规划 (精简版，已移除旧式代理占位符):
+  /webhook/{path} → nginx-relay:80     (NAS Webhook 透传，30s 超时)
+  /ops/quant/signal   → 本地业务逻辑  (A股量化信号接收，Token 鉴权 + PushPlus 推送)
+  /ops/research/paper → 本地业务逻辑  (科研文献归档，Token 鉴权 + PushPlus 推送)
   /ops/health    → 本地           (受保护健康检查)
   /health        → 本地           (公开健康检查，供 CF 探针)
   /              → API 状态页
-=============================================================================
-v2.1 修复:
-  - proxy_request 全量加载 → stream_proxy 流式透传（修复 SSE 打字机效果 & 大文件内存溢出）
-  - 各路由独立超时（Music:60s / Webhook:30s）
-  - 废弃无效的 FASTAPI_SECRET_KEY，改用 VPS_TOKEN Depends 保护 /ops/*
-  - httpx.AsyncClient 改为应用生命周期共享连接池，修复 TCP 连接泳漏
+
+已清理/移除:
+  /v1/*  — New-API (new-api 服务已从 compose 移除，存根删除)
+  /music/* — Music API (YesPlayMusic 已全栈回归 VPS 同网，网关不再需要转发)
+
+v2.2 改动:
+  - 移除 /v1/ New-API 存根和 /music/ 代理路由
+  - 新增 send_pushplus 异步工具：/ops/ 路由收到请求后实时推送微信通知
+  - ResearchPaper 补充 published_date 可选字段
+  - 清理冗余的 import json 和 Response 导入
 """
 
 import os
 import httpx
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Depends, HTTPException
-from fastapi.responses import StreamingResponse, JSONResponse, Response
+from fastapi import FastAPI, Request, Depends
+from fastapi.responses import StreamingResponse, JSONResponse
 
 from auth import verify_token
 from schemas import QuantSignal, ResearchPaper
 
 # ─── 配置 ─────────────────────────────────────────────────────────────────────
-MUSIC_API_URL = os.getenv("MUSIC_API_URL", "http://music-api:3000")
 NGINX_RELAY_URL = os.getenv("NGINX_RELAY_URL", "http://nginx-relay:80")
+PUSHPLUS_TOKEN = os.getenv("PUSHPLUS_TOKEN", "")
 
-# 全局共享 HTTP 连接池—应用生命周期初始化，避免每次请求新建 Client 导致 TCP 泄露
+
+# ─── PushPlus 微信推送工具函数 ──────────────────────────────────────────────────
+async def send_pushplus(title: str, content: str) -> None:
+    """异步微信推送，Token 为空时静默跳过，推送失败不影响主业务。"""
+    if not PUSHPLUS_TOKEN:
+        return
+    try:
+        assert _http_client is not None
+        await _http_client.post(
+            "http://www.pushplus.plus/send",
+            json={
+                "token": PUSHPLUS_TOKEN,
+                "title": title,
+                "content": content,
+                "template": "markdown",
+            },
+            timeout=5.0,
+        )
+    except Exception:
+        pass
+
+
+# ─── 全局 HTTP 连接池（应用生命周期管理，避免 TCP 泄露）────────────────────────
 _http_client: httpx.AsyncClient | None = None
 
 
@@ -44,8 +69,8 @@ async def lifespan(application: FastAPI):
 
 app = FastAPI(
     title="VPS-OPS API Gateway",
-    description="统一 API 网关 v2.1 — 流式透传 + /ops/ 数据中台",
-    version="2.1.0",
+    description="统一 API 网关 v2.2 — Webhook 透传 + /ops/ 数据中台 + PushPlus 推送",
+    version="2.2.0",
     lifespan=lifespan,
 )
 
@@ -59,12 +84,11 @@ async def stream_proxy(
 ) -> StreamingResponse:
     """
     将请求流式代理到目标后端，不在内存中缓存响应体。
-    适用于：SSE 打字机输出 / 音频大文件 / 任何流式场景。
+    适用于：SSE 打字机输出 / Webhook 请求体 / 任何流式场景。
     使用应用全局共享的 AsyncClient 连接池。
     """
     assert _http_client is not None, "HTTP client 未初始化"
 
-    # 构建目标 URL
     path = request.url.path
     if strip_prefix and path.startswith(strip_prefix):
         path = path[len(strip_prefix) :]
@@ -74,13 +98,9 @@ async def stream_proxy(
     if request.url.query:
         url = f"{url}?{request.url.query}"
 
-    # 过滤请求头（移除 host，避免后端路由混乱）
     headers = {k: v for k, v in request.headers.items() if k.lower() != "host"}
-
-    # 读取请求体（API 请求 body 通常很小）
     body = await request.body()
 
-    # 使用共享连接池发送请求（告别每次 new client 的贾道）
     req = _http_client.build_request(request.method, url, headers=headers, content=body)
 
     try:
@@ -102,7 +122,6 @@ async def stream_proxy(
             content={"error": "Bad Gateway", "detail": str(e), "target": url},
         )
 
-    # 过滤响应头（移除可能导致客户端解码失败的传输编码头）
     skip_headers = {"content-encoding", "transfer-encoding", "content-length"}
     response_headers = {
         k: v for k, v in resp.headers.items() if k.lower() not in skip_headers
@@ -132,13 +151,13 @@ async def root():
     """API 网关状态页"""
     return {
         "service": "VPS-OPS API Gateway",
-        "version": "2.1.0",
+        "version": "2.2.0",
         "routes": {
-            "/v1/*": "New API (AI 接口，SSE 流式)",
-            "/music/*": "Music API (音乐接口，流式大文件)",
-            "/webhook/*": "Webhook Relay (NAS 转发)",
-            "/ops/*": "数据中台 (需 X-VPS-Token 鉴权)",
-            "/health": "健康检查",
+            "/webhook/*": "Webhook Relay → NAS n8n (nginx-relay 内网穿透)",
+            "/ops/quant/signal": "A股量化信号接收 [POST, 需 X-VPS-Token]",
+            "/ops/research/paper": "科研文献元数据归档 [POST, 需 X-VPS-Token]",
+            "/ops/health": "数据中台健康检查 [GET, 需 X-VPS-Token]",
+            "/health": "公开健康检查 [GET]",
         },
     }
 
@@ -150,40 +169,12 @@ async def health():
 
 
 @app.api_route(
-    "/v1/{path:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    tags=["AI 接口"],
-)
-async def proxy_ai(request: Request):
-    """AI 接口占位符 — 如需使用，在 .env 中设置 NEW_API_URL 并在此重新启用该路由"""
-    new_api_url = os.getenv("NEW_API_URL", "")
-    if not new_api_url:
-        return JSONResponse(
-            status_code=503,
-            content={"error": "AI 接口未配置，请设置 NEW_API_URL 环境变量"},
-        )
-    return await stream_proxy(request, new_api_url, timeout=300.0)
-
-
-@app.api_route(
-    "/music/{path:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    tags=["音乐接口"],
-)
-async def proxy_music(request: Request):
-    """代理到 Music API — 流式大文件透传，超时 60s"""
-    return await stream_proxy(
-        request, MUSIC_API_URL, strip_prefix="/music", timeout=60.0
-    )
-
-
-@app.api_route(
     "/webhook/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     tags=["Webhook"],
 )
 async def proxy_webhook(request: Request):
-    """代理到 Nginx Relay → NAS，超时 30s"""
+    """透传到 Nginx Relay → 宿主机 Tailscale → NAS n8n，超时 30s"""
     return await stream_proxy(
         request, NGINX_RELAY_URL, strip_prefix="/webhook", timeout=30.0
     )
@@ -198,15 +189,24 @@ async def receive_quant_signal(
     _: None = Depends(verify_token),
 ):
     """
-    接收 A股量化交易信号。
+    接收 A股量化交易信号并推送微信通知。
     外部调用：POST https://api.660415.xyz/ops/quant/signal
     Header:   X-VPS-Token: <VPS_TOKEN>
     """
-    # TODO: 对接 SQLite / Cloudflare D1 持久化
-    # TODO: 对接 Gotify / Server酱 推送买卖点通知
     print(
         f"[量化引擎] {signal.symbol} → {signal.signal_type}"
         f"  策略: {signal.strategy_name}  价格: {signal.price}"
+    )
+    emoji = (
+        "🟢"
+        if signal.signal_type.upper() == "BUY"
+        else "🔴" if signal.signal_type.upper() == "SELL" else "🟡"
+    )
+    await send_pushplus(
+        f"{emoji} [量化] {signal.symbol} {signal.signal_type}点信号",
+        f"**标的**: {signal.symbol}\n**信号**: {signal.signal_type}\n"
+        f"**策略**: {signal.strategy_name}\n**价格**: {signal.price}\n"
+        f"**时间**: {signal.timestamp}",
     )
     return {
         "status": "success",
@@ -221,12 +221,17 @@ async def receive_research_paper(
     _: None = Depends(verify_token),
 ):
     """
-    接收高功率光纤激光器科研文献元数据。
+    接收高功率光纤激光器科研文献元数据并推送微信通知。
     外部调用：POST https://api.660415.xyz/ops/research/paper
     Header:   X-VPS-Token: <VPS_TOKEN>
     """
     # TODO: 触发 Cloudflare Pages MkDocs 重新构建
     print(f"[学术引擎] 归档: {paper.title[:40]}  标签: {paper.tags}")
+    await send_pushplus(
+        "📚 [学术] 新文献已归档",
+        f"**标题**: {paper.title[:60]}\n**标签**: {', '.join(paper.tags)}\n"
+        f"**归档时间**: {paper.extraction_time}",
+    )
     return {
         "status": "success",
         "message": "文献元数据已归档",

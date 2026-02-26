@@ -36,4 +36,5 @@ class ResearchPaper(BaseModel):
         ..., description="标签集，如 ['TMI', 'SRS', 'Saturable_Absorption']"
     )
     pdf_path: Optional[str] = Field(None, description="NAS 或 ESXi 上的物理存储路径")
+    published_date: Optional[str] = Field(None, description="发表日期，如 2025-01")
     extraction_time: datetime = Field(default_factory=datetime.now)

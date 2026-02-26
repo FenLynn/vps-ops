@@ -503,3 +503,138 @@ Made with ❤️ by FenLynn
 
 </div>
 
+---
+
+## 🐍 FastAPI 数据中台：开发者完全指南
+
+> 本章节面向开发者，涵盖所有 `/ops/` 接口的测试与调试方法。
+
+### 文件结构
+
+```
+config/fastapi-gateway/
+├── main.py         # 路由入口与业务逻辑
+├── schemas.py      # Pydantic 数据模型
+├── auth.py         # X-VPS-Token 鉴权中间件
+├── requirements.txt
+└── Dockerfile
+```
+
+**对外域名**：`https://api.660415.xyz`  
+**Swagger 文档**：`https://api.660415.xyz/docs`（自动生成，可在线调试）
+
+---
+
+### 环境变量
+
+| 变量 | 说明 |
+|---|---|
+| `VPS_TOKEN` | `/ops/*` 路由鉴权 Token（必填） |
+| `PUSHPLUS_TOKEN` | 微信推送 Token，不填则静默不推 |
+| `NGINX_RELAY_URL` | Webhook 透传目标，默认 `http://nginx-relay:80` |
+
+---
+
+### 重新构建与部署
+
+```bash
+cd /opt/vps-dmz
+# 构建镜像
+docker build -t vps-ops/fastapi-gateway:latest ./config/fastapi-gateway/
+# 热重载容器（不影响其他服务）
+docker compose up -d --force-recreate fastapi
+# 实时日志
+docker logs fastapi -f
+```
+
+---
+
+### 接口测试 curl 命令
+
+> 替换 `<VPS_TOKEN>` 为 `.env` 中的实际值
+
+**公开健康检查**
+```bash
+curl https://api.660415.xyz/health
+# → {"status":"ok"}
+```
+
+**受保护健康检查**
+```bash
+curl https://api.660415.xyz/ops/health \
+  -H "X-VPS-Token: <VPS_TOKEN>"
+# → {"status":"ok","role":"Data_Hub_Backend"}
+```
+
+**A股量化买卖信号（含微信推送）**
+```bash
+curl -X POST https://api.660415.xyz/ops/quant/signal \
+  -H "Content-Type: application/json" \
+  -H "X-VPS-Token: <VPS_TOKEN>" \
+  -d '{
+    "symbol": "000001",
+    "signal_type": "BUY",
+    "strategy_name": "MA20_Cross",
+    "price": 13.37
+  }'
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `symbol` | string | ✅ | 股票代码 |
+| `signal_type` | string | ✅ | `BUY` / `SELL` / `HOLD` |
+| `strategy_name` | string | ✅ | 策略名称 |
+| `price` | float | ✅ | 信号价格 |
+| `timestamp` | datetime | 自动 | 不传则为当前时刻 |
+| `metadata` | dict | 可选 | 附加深度指标数据 |
+
+**科研文献归档（含微信推送）**
+```bash
+curl -X POST https://api.660415.xyz/ops/research/paper \
+  -H "Content-Type: application/json" \
+  -H "X-VPS-Token: <VPS_TOKEN>" \
+  -d '{
+    "title": "Transverse Mode Instability in High-Power Fiber Lasers",
+    "authors": ["A. Smith", "B. Zhang"],
+    "abstract": "TMI investigation in Yb-doped fiber amplifiers...",
+    "tags": ["TMI", "Fiber_Laser", "High_Power"],
+    "published_date": "2025-01"
+  }'
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `title` | string | ✅ | 论文标题 |
+| `authors` | List[str] | ✅ | 作者列表 |
+| `abstract` | string | ✅ | 摘要 |
+| `tags` | List[str] | ✅ | 标签集 |
+| `pdf_path` | string | 可选 | NAS 物理路径 |
+| `published_date` | string | 可选 | 如 `2025-01` |
+
+**Webhook 透传**
+```bash
+curl -X POST https://api.660415.xyz/webhook/n8n/webhook/test123 \
+  -H "Content-Type: application/json" \
+  -d '{"event":"test"}'
+```
+
+---
+
+### 远程调试命令
+
+```bash
+# 实时日志
+docker logs fastapi -f
+
+# 进入容器
+docker exec -it fastapi /bin/sh
+
+# 验证 PushPlus Token 注入是否正确
+docker exec fastapi env | grep PUSHPLUS
+
+# 本地纯 Python 测试（需安装依赖）
+cd config/fastapi-gateway
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+```
+
