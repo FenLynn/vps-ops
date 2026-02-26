@@ -20,6 +20,17 @@ LOG_PREFIX="[Kopia Backup]"
 # 需要暂停的容器列表 (含 SQLite 数据库的服务)
 PAUSE_CONTAINERS="uptime-kuma"
 
+# ─── 消息推送助手 ────────────────────────────────────────────────────────────
+send_pushplus() {
+    local title="$1"
+    local content="$2"
+    if [ -n "${PUSHPLUS_TOKEN:-}" ]; then
+        curl -s -X POST "http://www.pushplus.plus/send" \
+            -H "Content-Type: application/json" \
+            -d "{\"token\":\"${PUSHPLUS_TOKEN}\",\"title\":\"${title}\",\"content\":\"${content}\",\"template\":\"markdown\"}" > /dev/null
+    fi
+}
+
 # ─── 安全网: 确保容器在任何情况下都会恢复 ─────────────────────────────────────
 cleanup() {
     echo "${LOG_PREFIX} [安全网] 确保所有容器已恢复..."
@@ -86,5 +97,6 @@ if [ "${SNAP_SUCCESS}" = true ]; then
     echo "=== ${LOG_PREFIX} ✅ 完成: $(date) ==="
 else
     echo "=== ${LOG_PREFIX} ❌ 失败: $(date) ==="
+    send_pushplus "[VPS-告警] 灾备快照失败" "您的服务器在尝试执行全量容器快照倒排备份时遇到致命错误，错误代码 ${SNAP_RC}。<br/>请立即登录服务器，使用 \`docker logs kopia\` 检查！<br/>时间: $(date)"
     exit 1
 fi

@@ -248,8 +248,8 @@ services:
     restart: unless-stopped
     hostname: vps-backup
     volumes:
-      # 仅挂载 data/ 目录（备份目标），不挂载 logs/
-      - ${BASE_DIR:-/opt/vps-dmz}/data:/source:ro
+      # 挂载 data/ 目录（备份目标），需留读写权限以允许灾后全自动恢复 (Restore)
+      - ${BASE_DIR:-/opt/vps-dmz}/data:/source
       - kopia-cache:/app/cache
       - kopia-config:/app/config
     environment:

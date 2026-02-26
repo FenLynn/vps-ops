@@ -31,6 +31,19 @@ if [ -f "${PROJECT_DIR}/.env" ]; then
     export $(grep -v '^#' "${PROJECT_DIR}/.env" | xargs)
 fi
 
+# ─── 消息推送与异常捕获 ────────────────────────────────────────────────────────────
+send_pushplus() {
+    local title="$1"
+    local content="$2"
+    if [ -n "${PUSHPLUS_TOKEN:-}" ]; then
+        curl -s -X POST "http://www.pushplus.plus/send" \
+            -H "Content-Type: application/json" \
+            -d "{\"token\":\"${PUSHPLUS_TOKEN}\",\"title\":\"${title}\",\"content\":\"${content}\",\"template\":\"markdown\"}" > /dev/null
+    fi
+}
+# 设置全局错误捕捉，如果脚本非正常退出，发送警告
+trap 'rc=$?; if [ $rc -ne 0 ]; then send_pushplus "[VPS-告警] 初始化或重建异常中断" "开荒脚本在执行时发生致命错误退出！<br/>最后退出状态码: ${rc}。<br/>请立即通过云提供商后台 VNC 检查日志！"; fi' EXIT
+
 # 核心路径
 BASE_DIR="${BASE_DIR:-/opt/vps-dmz}"
 
@@ -408,13 +421,9 @@ echo "[10/12] 创建目录结构: ${BASE_DIR}..."
 
 mkdir -p \
     ${BASE_DIR}/data/acme \
-    ${BASE_DIR}/data/new-api \
     ${BASE_DIR}/data/uptime-kuma \
     ${BASE_DIR}/data/kopia-cache \
-    ${BASE_DIR}/data/dockge \
-    ${BASE_DIR}/data/homarr/configs \
-    ${BASE_DIR}/data/homarr/icons \
-    ${BASE_DIR}/logs/new-api \
+    ${BASE_DIR}/data/homepage \
     ${BASE_DIR}/logs/nginx \
     ${BASE_DIR}/config/nginx-relay \
     ${BASE_DIR}/config/fastapi-gateway \
@@ -545,8 +554,8 @@ fi
 if [ "${AUTO_RESTORE_FROM_R2:-true}" = "true" ] && [ -n "${R2_BUCKET:-}" ]; then
     echo ""
     echo "[BDR 灾备恢复] 检测到 AUTO_RESTORE_FROM_R2 开启..."
-    # 检查本地是否有存留数据（以 dockge 的存在为准，防误覆盖）
-    if [ ! -d "${BASE_DIR}/data/dockge" ] || [ -z "$(ls -A ${BASE_DIR}/data/dockge 2>/dev/null)" ]; then
+    # 检查核心业务文件是否已存在 (以 uptime-kuma 的 db 存在为准，防止误覆盖现有业务)
+    if [ ! -f "${BASE_DIR}/data/uptime-kuma/kuma.db" ]; then
         echo "  - 判定当前为全新空载节点，尝试连入 Cloudflare R2..."
         cd ${BASE_DIR}
         docker compose up -d kopia
@@ -560,8 +569,10 @@ if [ "${AUTO_RESTORE_FROM_R2:-true}" = "true" ] && [ -n "${R2_BUCKET:-}" ]; then
             echo "  ✅ 在 R2 中发现可用快照 [$LATEST_SNAP]！开始全自动时空还原..."
             docker exec kopia kopia restore "$LATEST_SNAP" /source
             echo "  ✅ 数据解压与还原完美完成！"
+            send_pushplus "[VPS] BDR 灾备恢复大成功" "节点已从 R2 云端快照 \`${LATEST_SNAP}\` 中完美重建所有业务数据！"
         else
             echo "  ⚠️ R2 中暂无历史快照，本台机器将作为全新节点开荒。"
+            send_pushplus "[VPS] BDR 架构全新空载开荒" "检测到 R2 中毫无可用备份快照，VPS设备将作为全新主节点进行初始化开荒。"
         fi
         
         # 恢复完顺手停掉 kopia，等下面全量拉起
@@ -592,3 +603,6 @@ echo "  2. 去 Cloudflare Zero Trust 配置 Tunnel 路由"
 echo "  3. 查看容器状态: docker ps"
 echo "  4. 现在可以用 SSH 私钥从端口 ${SSH_PORT} 连接 ${ADMIN_USER}@VPS_IP"
 echo "=============================================="
+
+# 发送收尾成功捷报
+send_pushplus "[VPS] 🚀 开荒/重建部署全量完成" "您的服务器已经成功穿透封锁环境组装完毕，并已拉起所有业务容器。<br/>无状态堡垒机运行状态良好，网络畅通！"
