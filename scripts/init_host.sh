@@ -558,19 +558,46 @@ if [ "${AUTO_RESTORE_FROM_R2:-true}" = "true" ] && [ -n "${R2_BUCKET:-}" ]; then
     if [ ! -f "${BASE_DIR}/data/uptime-kuma/kuma.db" ]; then
         echo "  - 判定当前为全新空载节点，尝试连入 Cloudflare R2..."
         cd ${BASE_DIR}
-        docker compose up -d kopia
-        echo "  - ⏳ 等待 Kopia 与 R2 建立握手 (15秒)..."
-        sleep 15
+        # 先确保镜像拉取成功（最多重试 3 次，防止网络抖动 EOF 导致失败）
+        for attempt in 1 2 3; do
+            echo "  - ⬇️ 拉取 Kopia 镜像 (尝试 ${attempt}/3)..."
+            if docker compose pull kopia 2>&1 | tee /tmp/kopia_pull.log; then
+                echo "  ✅ 镜像下载成功"
+                break
+            fi
+            if [ ${attempt} -eq 3 ]; then
+                echo "  ❌ 致命错误：Kopia 镜像拉取在 3 次尝试后仍然失败（网络问题 EOF）！"
+                cat /tmp/kopia_pull.log
+                send_pushplus "[VPS-告警] Kopia 镜像下载失败" "拉取镜像时连续 3 次遭遇 EOF 中断，可能是宿主机网络不稳定。<br/>BDR 恢复已暂停，请稍后手动重试或检查网络连接。"
+                exit 1
+            fi
+            echo "  ⚠️ 拉取失败，等待 10 秒后重试..."
+            sleep 10
+        done
         
-        # 🚨 终极防爆红线：检查容器内 Kopia 是否真正连入了 R2
-        if ! docker exec kopia kopia repository status >/dev/null 2>&1; then
-            echo "  ❌ 致命错误：Kopia 无法连接至 R2 仓库！"
-            echo "     为防止空载重置导致现有云端备份毁损或覆盖，部署程序已被安全拦截点紧急阻断！"
-            echo "     👉 正在为您拉取 Kopia 容器运行日志，请检查您的 R2 密钥或 Endpoint 链接！"
-            echo "------------------- [ KOPIA CRASH LOGS ] -------------------"
-            docker logs kopia
+        docker compose up -d kopia
+        echo "  - ⏳ 等待 Kopia 与 R2 建立握手 (20秒)..."
+        sleep 20
+        
+        # 🚨 终极防爆红线第一层：检查容器是否真正启动（区分镜像问题和配置问题）
+        if ! docker ps --format '{{.Names}}' | grep -q "^kopia$"; then
+            echo "  ❌ 致命错误：Kopia 容器启动失败（可能是镜像损坏或 entrypoint 异常）！"
+            echo "     正在拉取 compose 服务日志..."
+            echo "------------------- [ KOPIA COMPOSE LOGS ] -------------------"
+            docker compose logs kopia 2>&1 | tail -40
             echo "------------------------------------------------------------"
-            send_pushplus "[VPS-致命告警] R2 库连接失败" "开荒程序尝试连入 R2 灾备库时遭到拒绝，底层网络或凭证可能存在问题。<br/>为防止您的旧数据被零覆盖，整个开荒/重构部署已被强制终止挂起！<br/>请连接服务器查看 \`docker logs kopia\`。"
+            send_pushplus "[VPS-致命告警] Kopia 容器启动失败" "容器 kopia 启动后立即退出，可能是 R2 凭证错误或 entrypoint 异常。<br/>请查看 \`docker compose logs kopia\` 检查原因！"
+            exit 1
+        fi
+        
+        # 🚨 终极防爆红线第二层：检查容器内 Kopia 是否真正连入了 R2
+        if ! docker exec kopia kopia repository status >/dev/null 2>&1; then
+            echo "  ❌ 致命错误：Kopia 容器已启动，但无法连接至 R2 仓库！"
+            echo "     很可能是 R2 密钥错误或 Endpoint URL 格式问题。"
+            echo "------------------- [ KOPIA CRASH LOGS ] -------------------"
+            docker logs kopia 2>&1 | tail -50
+            echo "------------------------------------------------------------"
+            send_pushplus "[VPS-致命告警] R2 库连接失败" "Kopia 容器已启动但连接 R2 时遭到拒绝，请检查 .env 中的 R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_ENDPOINT_URL 是否正确。<br/>BDR 恢复已强制暂停以保护云端数据！"
             docker compose stop kopia 2>/dev/null || true
             exit 1
         fi
