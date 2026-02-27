@@ -118,7 +118,7 @@ services:
 
         mkdir -p /acme.sh/$$DERP_DOMAIN;
         /acmebin/acme.sh --install-cert -d $$DERP_DOMAIN --ecc \
-          --cert-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt \
+          --fullchain-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt \
           --key-file  /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.key;
 
         echo '📂 证书目录:'; ls -la /acme.sh/$$DERP_DOMAIN/;

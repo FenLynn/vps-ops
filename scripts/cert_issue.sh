@@ -223,7 +223,7 @@ echo "📝 Step 3: 安装证书到 ${CERT_DIR}..."
 mkdir -p "${CERT_DIR}"
 docker exec "${ACME_CONTAINER}" acme.sh \
     --install-cert -d "${DERP_DOMAIN}" --ecc \
-    --cert-file "/acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.crt" \
+    --fullchain-file "/acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.crt" \
     --key-file  "/acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.key"
 
 INSTALL_RC=$?
