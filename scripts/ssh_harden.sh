@@ -236,10 +236,10 @@ fi
 
 if [ -f /etc/fail2ban/jail.local ]; then
     dryrun_or_exec "sed -i 's/^port.*/port     = 22,${TARGET_PORT}/' /etc/fail2ban/jail.local"
-    
+
     if [ -n "$CURRENT_CLIENT_IP" ]; then
         echo "    发现当前客户端 IP: ${CURRENT_CLIENT_IP}，加入 ignoreip 白名单"
-        # 检查是否已存在 ignoreip
+        # 强制检查并追加 ignoreip
         if grep -q "^ignoreip" /etc/fail2ban/jail.local; then
             if ! grep -q "${CURRENT_CLIENT_IP}" /etc/fail2ban/jail.local; then
                 dryrun_or_exec "sed -i 's/^ignoreip.*/& ${CURRENT_CLIENT_IP}/' /etc/fail2ban/jail.local"
@@ -248,7 +248,8 @@ if [ -f /etc/fail2ban/jail.local ]; then
             dryrun_or_exec "sed -i '/\[sshd\]/a ignoreip = 127.0.0.1/8 ::1 ${CURRENT_CLIENT_IP}' /etc/fail2ban/jail.local"
         fi
     fi
-    
+
+    # 不管 fail2ban 之前是不是死的，强行拉起来
     dryrun_or_exec "systemctl restart fail2ban 2>/dev/null || true"
 fi
 
