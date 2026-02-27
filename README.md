@@ -364,108 +364,119 @@ systemctl restart ssh
 
 ## 🛠️ 初始化完成后：手动收尾操作（每次重建必做）
 
-> `init_host.sh` 完成后，你的容器已经全部拉起，但还有几件事**必须手动完成**。按以下顺序执行，缺一不可。
+> `init_host.sh` 完成后，你的容器已经全部拉起，但系统仍然处于密码登录的初始宽松状态。按以下 **5 个步骤**顺序执行，打造坚不可摧的安全堡垒。
 
-### ✅ 第 1 步：开启防火墙（UFW 最终上锁）
+### ✅ 第 1 步：SSH 安全加固与锁定（必做）
 
-`init_host.sh` 已写入 UFW 规则，但为防止把自己锁在门外，最后一步需要**手动确认并启用**：
+目前系统仍允许通过 22 端口密码登录。我们需要运行专门的加固脚本：修改为仅公钥认证的新端口（默认 22222），并自动配置 UFW 和 Fail2Ban 防火墙。
 
 ```bash
-# SSH 进入 VPS（此时仍可用 22 或 22222 端口）
-ssh -p 22 root@<VPS_IP>
+# ⚠️ 重要：必须带上 -E 参数保留环境变量，让脚本获取你的物理 IP 注入白名单防误伤！
 
-# 确认 UFW 规则已就绪（应能看到 22, 22222, 33445, 3478 的 ALLOW 规则）
-sudo ufw status
+# 1.a 先预览脚本将执行的加固操作（强烈建议）
+sudo -E bash /opt/vps-dmz/scripts/ssh_harden.sh --dry-run
 
-# 正式启用防火墙（如果未启用）
-sudo ufw --force enable
+# 1.b 正确无误后，正式执行加固
+sudo -E bash /opt/vps-dmz/scripts/ssh_harden.sh
 
-# 验证状态
-sudo ufw status verbose
+# 1.c ⚠️ 立即在新开的终端窗口测试连接（不要关闭旧窗口！）
+ssh -p 22222 sudor@<VPS_IP>
+
+# 1.d 【测试成功后】清理战场，断开旧后门
+sudo ufw delete allow 22/tcp
+sudo ufw reload
+
+# 1.e 【测试失败时】如果连不上，在旧窗口一键回退
+sudo -E bash /opt/vps-dmz/scripts/ssh_harden.sh --rollback
 ```
+
+> 🎯 **云控制台动作：** 确认连接成功后，去阿里云/腾讯云网页控制台的 **安全组规则**，将入方向的 **22 端口设为拒绝**，把 **22222 端口设为允许**。
+
+---
 
 ### ✅ 第 2 步：更新 `derp.660415.xyz` 的 DNS A 记录
 
-DERP 节点是纯 IP 直连，**Cloudflare Tunnel 无法帮它自动解析 IP**，必须手动更新：
+DERP 节点需要纯 IP 直连，**Cloudflare Tunnel 无法帮它自动解析**，每次更换 VPS IP 必须手动更新：
 
 1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/) → 选择你的域名
-2. `DNS` → 找到 `derp` 的 A 记录 → 修改为**新 VPS 的公网 IP**
-3. **关闭 Proxy（橙色云 → 灰色云）**，DERP 需要纯 DNS 直连
+2. `DNS` → 找到 `derp` 的 A 记录 → 修改为**新 VPS 的公网 IP** (可通过 `curl ifconfig.me` 获取)
+3. **关闭 Proxy（橙色云 → 灰色云）**，DERP 需要纯 DNS 直连。
+
+---
+
+### ✅ 第 3 步：证书状态检测与签发（根据情况分支）
+
+由于所有数据挂载在 `data/acme/`，重装 VPS 时旧数据可能被保留。
 
 ```bash
-# 在 VPS 上确认公网 IP
-curl ifconfig.me
-```
-
-### ✅ 第 3 步：证书状态检测与签发（分支情况）
-
-由于我们在 `docker-compose.yml` 中将数据挂载到了 `data/` 目录，如果是**重建 VPS（保留了数据）**，证书会直接继承。我们需要先检查状态：
-
-```bash
-# 检查当前系统本地的证书状态
+# 检测本地证书状态
 sudo bash /opt/vps-dmz/scripts/cert_issue.sh --status
 ```
 
-**根据输出结果，执行对应分支：**
+**👇 根据打印结果，选择执行以下其一：**
 
-#### 💡 情况 3.A：输出显示为 `✅ 这是正式证书`
-说明你的旧证书被完美继承了！不需要重新申请，直接重启守护进程让它加载：
+#### 🔹 3.A 发现有效正式证书（输出 `✅ 这是正式证书`）
+恭喜，旧证书完美继承，无需重新申请！只需让程序重新加载即可：
 ```bash
-cd /opt/vps-dmz
 docker restart derper
+docker logs derper --tail 5 
+# 看到 serving on :33445 with TLS 即为成功
 ```
 
-#### 💡 情况 3.B：报错不存在，或提示 `⚠️ 这是 STAGING 测试证书`
-这是完全从零开荒，或测试占位符没被顶掉。执行强制签发正式全链证书（需等 30~60 秒验证）：
+#### 🔹 3.B 报错不存在 / 提示为 STAGING 测试证书
+这是彻底新开荒的情况，强制执行零时差的 Let's Encrypt 生产环境签发：
 ```bash
+# 强行签发正式全链证书（约需 30~60 秒验证全球 DNS）
 sudo bash /opt/vps-dmz/scripts/cert_issue.sh --force
-# 看到 ✅ 证书签发完成 后，重启加载：
+
+# 签发完成后，重启让容器吃进新证书
 docker restart derper
+docker logs derper --tail 5
 ```
 
 ---
 
-### ✅ 第 4 步：Tailscale 组网检测（分支情况）
+### ✅ 第 4 步：Tailscale 组网与连通性检测
 
-与证书同理，如果是挂载过旧的 `/var/lib/tailscale`，节点会自动复活。
+由于挂载了 `/var/lib/tailscale`，这台机器的身份记忆也是独立且可能残留的。
 
 ```bash
-# 检测组网状态
+# 检查当前加入状态
 tailscale status
 ```
 
-**根据输出结果，执行对应分支：**
+**👇 根据打印结果，选择执行以下其一：**
 
-#### 💡 情况 4.A：列出了其他设备，且没有红色网络超时报错
-恭喜，组网同样被继承并自动跑通！你已经可以在手机或 NAS 用 Tailscale 穿透了。
+#### 🔹 4.A 一切正常（看到其他设备 IP 且底栏无红色 Error）
+完美继承，你已经可以用手机/NAS连入这台机器了，什么都不用做！
 
-#### 💡 情况 4.B：报错未登录（Logged out）或由于残余 ACL 导致无法连通
-你需要彻底干掉历史混乱状态，以最纯净的指令重新加入当前网络：
+#### 🔹 4.B Timeout 报错 / 处于 Logout 离线状态
+需要清洗脏数据，用最纯净的隧道指令强行重新回归你的私有网络：
 ```bash
-# --reset 会抹除它以前可能留下的错误端口缓存和参数
+# --reset 参数会彻底抹除残留的代理、ACL等奇葩记忆
 sudo tailscale up --authkey="你的_TAILSCALE_KEY" --accept-routes --reset
 ```
 
 ---
 
-### ✅ 第 5 步：收尾与上层业务（Memos / Alist）检查
+### ✅ 第 5 步：收尾及上层业务检查（获取初始密码）
 
-所有底层网络通畅后，用简单的日志命令给上面运行的业务容器做最终体检：
+在一切底层协议跑通后，通过 Docker 标准日志查验你的应用矩阵是否健康：
 
 ```bash
-# 获取所有容器存活状态（应当没有 Restarting 和 Exited）
-docker ps
+# 5.a 查看总体情况（State 为 Up 即正常）
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.State}}"
 
-# 检查 Memos 存活与否
+# 5.b 检查 Memos 健康度
 docker logs memos --tail 10
 
-# 获取 Alist 的初始安装密码（⚠️ 非常重要：第一次部署必须查阅）
+# 5.c 获取 Alist 初始安全密码 (⚠️ 只有新机开荒有此提示)
 docker logs alist | grep -i password
 ```
 
-一切绿色无报错后：
-- 在浏览器打开 `https://memos.<你的域名>` 进行初始管理员设置。
-- 在浏览器打开 `https://alist.<你的域名>` 用刚才查到的初始密码登录。
+**大功告成！** 打开浏览器：
+- 访问 `https://memos.660415.xyz` 进行初始基础设置。
+- 访问 `https://alist.660415.xyz` 用刚才打出来的 Admin 密码登录。
 
 ---
 
