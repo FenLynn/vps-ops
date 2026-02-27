@@ -33,10 +33,12 @@ services:
     networks:
       - vps_tunnel_net
     healthcheck:
-      test: ["CMD", "cloudflared", "tunnel", "info"]
+      # cloudflared 通过命令行 token 运行，tunnel info 需要凭证文件无法使用
+      # 改为检查 metrics server (20241 端口) 判断进程是否健康
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:20241/metrics 2>&1"]
       interval: 30s
       timeout: 10s
-      retries: 5
+      retries: 3
 
   # --- 证书管理 (acme.sh daemon 常驻) ---
   acme:
@@ -86,28 +88,25 @@ services:
         echo '🔒 [PROD MODE] 使用 Let'\''s Encrypt 生产服务器';
       fi;
 
-      if [ ! -s /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt ] || ! grep -q 'BEGIN CERTIFICATE' /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt; then
+      CERT_FILE=/acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt;
+      if [ ! -s \"$$CERT_FILE\" ] || ! grep -q 'BEGIN CERTIFICATE' \"$$CERT_FILE\"; then
         echo '🚀 签发证书: $$DERP_DOMAIN (server=$$ACME_SERVER)...';
-        rm -rf /acme.sh/$$DERP_DOMAIN/*;
-        /entry.sh --issue --server $$ACME_SERVER -d $$DERP_DOMAIN --dns dns_cf --keylength ec-256;
+        rm -rf /acme.sh/$${DERP_DOMAIN}* 2>/dev/null || true;
+        # ⚠️ 关键修复: 直接调用 acme.sh 二进制而非 /entry.sh
+        # /entry.sh 在已有 acme daemon 运行时会尝试 socket relay 并瞬间失败
+        /acmebin/acme.sh --issue --server $$ACME_SERVER -d $$DERP_DOMAIN --dns dns_cf --keylength ec-256;
         mkdir -p /acme.sh/$$DERP_DOMAIN;
-        /entry.sh --install-cert -d $$DERP_DOMAIN --ecc --cert-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt --key-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.key;
-        # 回退: 从 _ecc 目录强制拷贝
-        if [ ! -s /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt ]; then
-          echo '⚠️ 标准安装未成功，从 ECC 目录强制拷贝...';
-          cp -f /acme.sh/$${DERP_DOMAIN}_ecc/$${DERP_DOMAIN}.cer /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt 2>/dev/null || true;
-          cp -f /acme.sh/$${DERP_DOMAIN}_ecc/$${DERP_DOMAIN}.crt /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt 2>/dev/null || true;
-          cp -f /acme.sh/$${DERP_DOMAIN}_ecc/$${DERP_DOMAIN}.key /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.key 2>/dev/null || true;
-        fi
+        /acmebin/acme.sh --install-cert -d $$DERP_DOMAIN --ecc --cert-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt --key-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.key;
         echo '📂 证书目录:'; ls -la /acme.sh/$$DERP_DOMAIN/;
-        if [ ! -s /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt ] || ! grep -q 'BEGIN CERTIFICATE' /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt; then
-          echo '❌ 致命错误: 证书签发失败'; exit 1;
-        fi
+        if [ ! -s \"$$CERT_FILE\" ] || ! grep -q 'BEGIN CERTIFICATE' \"$$CERT_FILE\"; then
+          echo '❌ 致命错误: 证书签发失败，请检查 CF_Token 权限或 LE 速率限制'; exit 1;
+        fi;
+        echo '✅ 证书签发并安装成功';
       else
         echo '✅ 证书已存在: $$DERP_DOMAIN';
         if [ \"$$ACME_STAGING\" = \"true\" ]; then
-          echo '⚠️  注意: 当前证书为测试证书，切换到生产前请删除 data/acme/ 目录!';
-        fi
+          echo '⚠️  注意: 当前证书为测试证书，切换前请删除 data/acme/ 目录!';
+        fi;
       fi;
       chmod 644 /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt 2>/dev/null || true;
       chmod 644 /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.key 2>/dev/null || true;
