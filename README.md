@@ -397,97 +397,75 @@ DERP 节点是纯 IP 直连，**Cloudflare Tunnel 无法帮它自动解析 IP**�
 curl ifconfig.me
 ```
 
-### ✅ 第 3 步：申请 DERP 正式 TLS 证书（首次或重建后）
+### ✅ 第 3 步：证书状态检测与签发（分支情况）
 
-> ⚠️ LE 每周每域名限 5 次正式证书。**开发/演练阶段请保持 `.env` 中 `ACME_STAGING=true`**，只在正式上线时才切换为 `false`。
+由于我们在 `docker-compose.yml` 中将数据挂载到了 `data/` 目录，如果是**重建 VPS（保留了数据）**，证书会直接继承。我们需要先检查状态：
 
-**正常流程（`acme-init` 自动完成）：**
+```bash
+# 检查当前系统本地的证书状态
+sudo bash /opt/vps-dmz/scripts/cert_issue.sh --status
+```
 
+**根据输出结果，执行对应分支：**
+
+#### 💡 情况 3.A：输出显示为 `✅ 这是正式证书`
+说明你的旧证书被完美继承了！不需要重新申请，直接重启守护进程让它加载：
 ```bash
 cd /opt/vps-dmz
-
-# 确认 .env 中 ACME_STAGING=false
-grep ACME_STAGING .env
-
-# 如果还是 true，切换为 false
-sed -i 's/ACME_STAGING=true/ACME_STAGING=false/' .env
-
-# 清除测试证书，重新签发
-rm -rf data/acme/*
-docker compose up -d --force-recreate acme acme-init derper
-
-# 追踪进度（DNS-01 验证约需 2-3 分钟）
-docker logs -f acme-init
+docker restart derper
 ```
 
-**如果 `acme-init` 签发失败，走应急手工路径：**
-
+#### 💡 情况 3.B：报错不存在，或提示 `⚠️ 这是 STAGING 测试证书`
+这是完全从零开荒，或测试占位符没被顶掉。执行强制签发正式全链证书（需等 30~60 秒验证）：
 ```bash
-cd /opt/vps-dmz
-
-# ⚠️ 关键：直接调用 acme.sh 二进制，而非 /entry.sh
-# acme daemon 运行时 /entry.sh 会走 socket relay 并瞬间失败
-docker exec acme /acmebin/acme.sh --issue --server letsencrypt \
-  -d ${DERP_DOMAIN} --dns dns_cf --keylength ec-256
-
-# 安装到 derper 读取路径
-mkdir -p data/acme/${DERP_DOMAIN}
-docker exec acme /acmebin/acme.sh --install-cert -d ${DERP_DOMAIN} --ecc \
-  --cert-file /acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.crt \
-  --key-file /acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.key
-
-# 重启 derper
-docker compose restart derper
-
-# 验证（应看到 "serving on :33445 with TLS"）
-docker logs derper --tail 5
+sudo bash /opt/vps-dmz/scripts/cert_issue.sh --force
+# 看到 ✅ 证书签发完成 后，重启加载：
+docker restart derper
 ```
 
-### ✅ 第 4 步：SSH 安全加固（必做）
+---
 
-`init_host.sh` 完成后，系统仍然允许密码通过 `22` 端口登录。我们需要运行专门的加固脚本：修改为仅公钥认证的新端口。
+### ✅ 第 4 步：Tailscale 组网检测（分支情况）
+
+与证书同理，如果是挂载过旧的 `/var/lib/tailscale`，节点会自动复活。
 
 ```bash
-# ⚠️ 非常重要：必须带上 -E 参数，让脚本能获取你的当前物理 IP 以注入 Fail2Ban 白名单
-# 如果不加 -E，你反而会在加固瞬间被 Fail2Ban 当成爆破者无情封禁！
-
-# 1. 先预览加固操作
-sudo -E bash /opt/vps-dmz/scripts/ssh_harden.sh --dry-run
-
-# 2. 正式执行加固
-sudo -E bash /opt/vps-dmz/scripts/ssh_harden.sh
+# 检测组网状态
+tailscale status
 ```
 
-**执行成功后，请立即新开一个终端窗口**测试能否通过新指纹端口免密登录（`ssh -p 22222 sudor@<VPS_IP>`）。
-确认无误后，再使用下面命令切断旧的 22 端口：
+**根据输出结果，执行对应分支：**
 
+#### 💡 情况 4.A：列出了其他设备，且没有红色网络超时报错
+恭喜，组网同样被继承并自动跑通！你已经可以在手机或 NAS 用 Tailscale 穿透了。
+
+#### 💡 情况 4.B：报错未登录（Logged out）或由于残余 ACL 导致无法连通
+你需要彻底干掉历史混乱状态，以最纯净的指令重新加入当前网络：
 ```bash
-sudo ufw delete allow 22/tcp
-sudo ufw reload
+# --reset 会抹除它以前可能留下的错误端口缓存和参数
+sudo tailscale up --authkey="你的_TAILSCALE_KEY" --accept-routes --reset
 ```
 
-然后去**云控制台安全组**将端口 22 的入方向规则改为**拒绝**。
+---
 
-### ✅ 第 5 步（可选）：开启 Tailscale SSH
+### ✅ 第 5 步：收尾与上层业务（Memos / Alist）检查
 
-```bash
-# VPS 已加入 Tailscale（init_host.sh 完成），一行开启
-sudo tailscale up --ssh
-# 之后可从任意 TS 设备：ssh root@<tailscale主机名>
-```
-
-### 📊 收尾完成状态检查
+所有底层网络通畅后，用简单的日志命令给上面运行的业务容器做最终体检：
 
 ```bash
-# 全部容器应处于 Up 状态（acme-init 是一次性任务，不会在列表里）
+# 获取所有容器存活状态（应当没有 Restarting 和 Exited）
 docker ps
 
-# derper 应显示 TLS 服务成功
-docker logs derper --tail 3
+# 检查 Memos 存活与否
+docker logs memos --tail 10
 
-# cloudflared 4 条隧道在线
-docker logs cloudflared --tail 5 | grep "Registered tunnel"
+# 获取 Alist 的初始安装密码（⚠️ 非常重要：第一次部署必须查阅）
+docker logs alist | grep -i password
 ```
+
+一切绿色无报错后：
+- 在浏览器打开 `https://memos.<你的域名>` 进行初始管理员设置。
+- 在浏览器打开 `https://alist.<你的域名>` 用刚才查到的初始密码登录。
 
 ---
 
