@@ -425,13 +425,14 @@ docker logs -f acme-init
 ```bash
 cd /opt/vps-dmz
 
-# 手动从 acme daemon 签发
-docker exec acme /entry.sh --issue --server letsencrypt \
+# ⚠️ 关键：直接调用 acme.sh 二进制，而非 /entry.sh
+# acme daemon 运行时 /entry.sh 会走 socket relay 并瞬间失败
+docker exec acme /acmebin/acme.sh --issue --server letsencrypt \
   -d ${DERP_DOMAIN} --dns dns_cf --keylength ec-256
 
 # 安装到 derper 读取路径
 mkdir -p data/acme/${DERP_DOMAIN}
-docker exec acme /entry.sh --install-cert -d ${DERP_DOMAIN} --ecc \
+docker exec acme /acmebin/acme.sh --install-cert -d ${DERP_DOMAIN} --ecc \
   --cert-file /acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.crt \
   --key-file /acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.key
 
@@ -449,8 +450,10 @@ docker logs derper --tail 5
 ```bash
 # 在 VPS 上执行（必须已通过 22222 验证可正常登录再做此步）
 
-# ❗ Ubuntu 24.04 必须先禁用 ssh.socket
+# ❗ Ubuntu 24.04 必须先禁用并 mask ssh.socket
+# mask 是关键：彻底屏蔽 ssh.socket，防止 apt 在后续安装包时重新激活它
 sudo systemctl disable --now ssh.socket
+sudo systemctl mask ssh.socket
 sudo systemctl enable ssh.service
 sudo systemctl restart ssh
 
@@ -669,17 +672,20 @@ docker logs -f acme-init
 
 ### 应急路径：如果 `acme-init` 容器退出失败
 
-`acme-init` 失败时，可绞过它直接从 **`acme` 常驻容器**手动签发：
+`acme-init` 失败时，可绕过它直接从 **`acme` 常驻容器**手动签发：
 
 ```bash
 cd /opt/vps-dmz/
 
+# ⚠️ 关键：直接调用 acme.sh 二进制，而非 /entry.sh
+# acme daemon 运行时 /entry.sh 会走 socket relay 并瞬间失败
+
 # 步骤 1: 手动签发正式证书（如已存在则跳过）
-docker exec acme /entry.sh --issue --server letsencrypt -d ${DERP_DOMAIN} --dns dns_cf --keylength ec-256
+docker exec acme /acmebin/acme.sh --issue --server letsencrypt -d ${DERP_DOMAIN} --dns dns_cf --keylength ec-256
 
 # 步骤 2: 安装证书到 derper 能读取的目录
 mkdir -p data/acme/${DERP_DOMAIN}
-docker exec acme /entry.sh --install-cert -d ${DERP_DOMAIN} --ecc \
+docker exec acme /acmebin/acme.sh --install-cert -d ${DERP_DOMAIN} --ecc \
   --cert-file /acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.crt \
   --key-file /acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.key
 

@@ -47,15 +47,20 @@ trap 'rc=$?; if [ $rc -ne 0 ]; then send_pushplus "[VPS-告警] 初始化或重�
 # 禁用 Ubuntu 22.10+ 的 ssh.socket，将端口监听控制权还给 sshd_config
 # 背景：Ubuntu 24.04 引入 systemd socket activation，ssh.socket 固守 22 端口，
 #       导致 sshd_config 中的 Port 配置失效，自定义端口无法被监听。
+# ⚠️  apt post-install 脚本（如安装 tailscale、fail2ban 等）可能重新激活 ssh.socket！
+#       因此需要 mask 将其彻底屏蔽。
 disable_ssh_socket_if_needed() {
     if systemctl is-active ssh.socket &>/dev/null || \
        systemctl is-enabled ssh.socket 2>/dev/null | grep -q "enabled"; then
         echo "  ⚙️  检测到 ssh.socket 激活 (Ubuntu 22.10+)，正在禁用以恢复传统端口控制..."
         systemctl disable --now ssh.socket 2>/dev/null || true
-        echo "  ✅ ssh.socket已禁用，端口控制权归还给 sshd_config"
+        echo "  ✅ ssh.socket 已禁用"
     fi
+    # mask 是关键：彻底屏蔽 ssh.socket，防止 apt post-install 脚本（tailscale/fail2ban等）重新激活
+    systemctl mask ssh.socket 2>/dev/null || true
     # 确保 ssh.service 为传统常驻进程模式并开机自启
     systemctl enable ssh.service 2>/dev/null || true
+    echo "  ✅ ssh.socket 已 mask，端口控制权归还给 sshd_config"
 }
 
 # 核心路径
@@ -312,41 +317,18 @@ chown -R ${ADMIN_USER}:${ADMIN_USER} /home/${ADMIN_USER}/.ssh
 chmod 700 /home/${ADMIN_USER}/.ssh
 chmod 600 "${AUTH_FILE}" 2>/dev/null || true
 
-# ─── [6/12] SSH 宽松配置 (防登出) ────────────────────────────────────────────────
+# ─── [6/12] SSH 初始化 (保持系统默认，加固交给 ssh_harden.sh) ─────────────────
 echo ""
-echo "[6/12] 配置 SSH (宽松模式: 双端口、双用户、双认证)..."
+echo "[6/12] SSH 初始化 (Bootstrap 阶段: 不修改端口/认证策略)..."
 
-# Ubuntu 24.04 的 sshd_config 可能使用 /etc/ssh/sshd_config.d/ Drop-in 方式
-# 配置双端口(22和自定义)，允许 Root 登录，允许密码和密钥登录
-SSHD_DROPIN="/etc/ssh/sshd_config.d/99-vps-ops.conf"
-mkdir -p /etc/ssh/sshd_config.d
-cat > "${SSHD_DROPIN}" << EOF
-# 宽松模式认证 (由 vps-ops init_host.sh 写入)
-Port 22
-Port ${SSH_PORT}
-PermitRootLogin yes
-PasswordAuthentication yes
-PubkeyAuthentication yes
-AuthorizedKeysFile .ssh/authorized_keys
-X11Forwarding no
-EOF
-
-# 兼容老系统主配置，确保不被原先的阻挡
-sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || true
-sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || true
-
-echo "  ✅ SSH 宽松模式配置写入 ${SSHD_DROPIN} 及 /etc/ssh/sshd_config"
-
-# 夺回端口控制权：禁用 ssh.socket（Ubuntu 24.04+ 必须）
+# ⚠️ Bootstrap 只做最低限度处理：
+#   - 保持系统默认 22 端口、root 可登录、密码认证均保留
+#   - 公钥已从 presets/authorized_keys 注入，确保后续 ssh_harden.sh 能无密钥登入
+#   - 完整的 SSH 加固（改端口、禁root、禁密码、Tailscale SSH）请在部署稳定后
+#     手动执行：sudo bash scripts/ssh_harden.sh
 disable_ssh_socket_if_needed
-
-# SELinux 处理 (如有，通常只在 CentOS/RHEL 系上)
-if command -v getenforce &> /dev/null && [ "$(getenforce)" != "Disabled" ]; then
-    echo "  - SELinux: 添加端口 ${SSH_PORT}..."
-    yum install -y policycoreutils-python-utils &>/dev/null || true
-    semanage port -a -t ssh_port_t -p tcp ${SSH_PORT} 2>/dev/null || \
-        semanage port -m -t ssh_port_t -p tcp ${SSH_PORT} 2>/dev/null || true
-fi
+echo "  ✅ SSH 保持默认配置 (Port 22, 密码+公钥双认证)"  
+echo "  💡 完整加固请创建稳定后手动执行: sudo bash /opt/vps-dmz/scripts/ssh_harden.sh"
 
 # ─── [7/12] 防火墙配置 ────────────────────────────────────────────────────────
 echo ""
@@ -354,11 +336,8 @@ echo "[7/12] 配置防火墙 ($FW_TOOL)..."
 if [ "$FW_TOOL" = "ufw" ]; then
     ufw default deny incoming
     ufw default allow outgoing
-    # 同时放行默认 22 和自定义端口，防止初始化过程中失联
+    # Bootstrap 只放行默认 22（SSH 加固后由 ssh_harden.sh 添加自定义端口并移除 22）
     ufw allow 22/tcp             comment 'SSH-Default'
-    if [ "${SSH_PORT}" != "22" ]; then
-        ufw allow ${SSH_PORT}/tcp    comment 'SSH-Custom'
-    fi
     ufw allow ${DERP_PORT}/tcp   comment 'DERP relay'
     ufw allow ${DERP_STUN_PORT}/udp comment 'DERP STUN'
     ufw allow from 127.0.0.1
@@ -371,9 +350,6 @@ if [ "$FW_TOOL" = "ufw" ]; then
 elif [ "$FW_TOOL" = "firewalld" ]; then
     systemctl enable --now firewalld
     firewall-cmd --permanent --add-port=22/tcp
-    if [ "${SSH_PORT}" != "22" ]; then
-        firewall-cmd --permanent --add-port=${SSH_PORT}/tcp
-    fi
     firewall-cmd --permanent --add-port=${DERP_PORT}/tcp
     firewall-cmd --permanent --add-port=${DERP_STUN_PORT}/udp
     firewall-cmd --reload
@@ -418,10 +394,12 @@ fi
 # ─── [9/12] Fail2Ban ──────────────────────────────────────────────────────────
 echo ""
 echo "[9/12] 配置 Fail2Ban..."
+# Bootstrap 阶段只监听默认 22 端口
+# ssh_harden.sh 执行后会自动更新 Fail2Ban 规则以匹配新端口
 cat > /etc/fail2ban/jail.local << EOF
 [sshd]
 enabled  = true
-port     = 22,${SSH_PORT}
+port     = 22
 filter   = sshd
 logpath  = ${AUTH_LOG}
 maxretry = 3
@@ -430,7 +408,7 @@ findtime = 600
 EOF
 systemctl enable --now fail2ban 2>/dev/null || true
 systemctl restart fail2ban 2>/dev/null || true
-echo "  ✅ Fail2Ban 已配置 (SSH 端口: ${SSH_PORT}, maxretry: 3)"
+echo "  ✅ Fail2Ban 已配置 (仅监听 22 端口，执行 ssh_harden.sh 后会自动更新)"
 
 # ─── [10/12] 创建目录结构 & 同步文件 ─────────────────────────────────────────
 echo ""
@@ -496,18 +474,10 @@ fi
 # 确保 tailscaled 正在运行
 systemctl enable --now tailscaled 2>/dev/null || true
 
-# 如果提供了 Auth Key，自动加入 Tailnet
-if [ -n "${TAILSCALE_AUTH_KEY:-}" ]; then
-    echo "  - 自动加入 Tailscale 网络..."
-    tailscale up --authkey="${TAILSCALE_AUTH_KEY}" --accept-routes 2>/dev/null || {
-        echo "  ⚠️  tailscale up 可能已加入网络"
-        tailscale status || true
-    }
-elif ! tailscale status &>/dev/null; then
-    echo "  ⚠️  警告: TAILSCALE_AUTH_KEY 未设置！"
-    echo "     DERP --verify-clients 和 nginx-relay 需要 Tailscale"
-    echo "     请手动执行: tailscale up"
-fi
+# Bootstrap 阶段只安装 Tailscale，不自动加入 Tailnet
+# 加入 Tailnet + 激活 Tailscale SSH 由 ssh_harden.sh 统一管理
+echo "  ✅ Tailscale 已安装，请在 ssh_harden.sh 中统一激活"
+echo "  💡 手动加入: tailscale up --authkey=<KEY> --ssh"
 
 # ─── [12/12] 加载 .env 并启动服务 ────────────────────────────────────────────
 echo ""
@@ -546,26 +516,15 @@ fi
 # 创建 Docker 网络
 docker network create ${DOCKER_NET:-vps_tunnel_net} 2>/dev/null || true
 
-# SSH 重启 (使用 Drop-in 配置，需重启生效)
-echo "  - 重启 SSH..."
+# SSH 重启 (确保 Drop-in 变更生效，apt 安装期间 ssh.socket 可能被重新激活)
+echo "  - 确认 SSH 就绪..."
+disable_ssh_socket_if_needed
 if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
-    systemctl restart ssh 2>/dev/null || service ssh restart 2>/dev/null || true
+    systemctl restart ssh.service 2>/dev/null || service ssh restart 2>/dev/null || true
 else
     systemctl restart sshd 2>/dev/null || true
 fi
-
-# 验证自定义端口是否真正被监听（防止 ssh.socket 静默劫持端口导致无声失败）
-if [ "${SSH_PORT}" != "22" ]; then
-    sleep 2
-    if ss -tulpn 2>/dev/null | grep -q ":${SSH_PORT}"; then
-        echo "  ✅ SSH 已在端口 ${SSH_PORT} 上成功监听"
-    else
-        echo "  ❌ 严重警告: SSH 未监听在端口 ${SSH_PORT}！可能是 ssh.socket 仍在接管端口。"
-        echo "     请通过 VNC 手动执行: systemctl disable --now ssh.socket && systemctl restart ssh"
-        send_pushplus "[VPS-告警] SSH 端口绑定失败" \
-            "SSH 服务重启后未监听到端口 ${SSH_PORT}，可能是 ssh.socket 仍在接管端口。<br/>请立即通过 VNC 手动排查！"
-    fi
-fi
+echo "  ✅ SSH 服务已重启 (Port 22, 默认配置)"
 
 # 设置 crontab
 echo "  - 安装 crontab..."
@@ -664,14 +623,19 @@ echo ""
 echo "=============================================="
 echo "✅ VPS-OPS v2.0 部署完成!"
 echo "=============================================="
-echo "SSH 端口: ${SSH_PORT}  (提醒: 在云控制台开放此端口)"
+echo "SSH 端口: 22 (默认，加固后由 ssh_harden.sh 修改为 ${SSH_PORT})"
 echo "部署目录: ${BASE_DIR}"
 echo ""
-echo "⚠️  重要提醒:"
-echo "  1. 在云控制台防火墙开放端口 ${SSH_PORT}/TCP 和 ${DERP_PORT}/TCP"
-echo "  2. 去 Cloudflare Zero Trust 配置 Tunnel 路由"
-echo "  3. 查看容器状态: docker ps"
-echo "  4. 现在可以用 SSH 私钥从端口 ${SSH_PORT} 连接 ${ADMIN_USER}@VPS_IP"
+echo "⚠️  下一步操作:"
+echo "  1. 在云控制台防火墙确认 22/TCP 已开放"
+echo "  2. 在另一终端测试 SSH 可正常连接后，再执行 SSH 加固:"
+echo "       sudo bash ${BASE_DIR}/scripts/ssh_harden.sh --dry-run  # 先预览"
+echo "       sudo bash ${BASE_DIR}/scripts/ssh_harden.sh            # 再执行"
+echo "  3. 证书手动签发 (需 acme daemon 已运行):"
+echo "       sudo bash ${BASE_DIR}/scripts/cert_issue.sh --staging  # 先测试"
+echo "       sudo bash ${BASE_DIR}/scripts/cert_issue.sh            # 再正式签"
+echo "  4. 去 Cloudflare Zero Trust 配置 Tunnel 路由"
+echo "  5. 查看容器状态: docker ps"
 echo "=============================================="
 
 # 发送收尾成功捷报

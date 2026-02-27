@@ -77,8 +77,6 @@ services:
     restart: "no"
     command: |
       /bin/sh -c "
-      sleep 5;
-
       # 根据 ACME_STAGING 选择 CA 服务器
       if [ \"$$ACME_STAGING\" = \"true\" ]; then
         ACME_SERVER=letsencrypt_test;
@@ -88,24 +86,50 @@ services:
         echo '🔒 [PROD MODE] 使用 Let'\''s Encrypt 生产服务器';
       fi;
 
+      # ⏳ 等待 acme daemon 完全就绪 (30s)
+      # 生产环境 DNS 传播 + CF API 授权需要充足时间，5s 远远不够
+      echo '⏳ 等待 acme daemon 就绪 (30s)...';
+      sleep 30;
+
       CERT_FILE=/acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt;
+      ECC_DIR=/acme.sh/$${DERP_DOMAIN}_ecc;
+
       if [ ! -s \"$$CERT_FILE\" ] || ! grep -q 'BEGIN CERTIFICATE' \"$$CERT_FILE\"; then
         echo '🚀 签发证书: $$DERP_DOMAIN (server=$$ACME_SERVER)...';
-        rm -rf /acme.sh/$${DERP_DOMAIN}* 2>/dev/null || true;
-        # ⚠️ 关键修复: 直接调用 acme.sh 二进制而非 /entry.sh
-        # /entry.sh 在已有 acme daemon 运行时会尝试 socket relay 并瞬间失败
+
+        # 清理可能存在的残留（staging → prod 切换必须清理旧 ECC 目录）
+        rm -rf /acme.sh/$${DERP_DOMAIN} /acme.sh/$${DERP_DOMAIN}_ecc 2>/dev/null || true;
+
+        # ⚠️ 关键: 直接调用 acme.sh 二进制，绕开 /entry.sh 的 daemon socket relay
+        # /entry.sh 在 daemon 运行时走 socket 通信，一次性容器无法持续监听响应
         /acmebin/acme.sh --issue --server $$ACME_SERVER -d $$DERP_DOMAIN --dns dns_cf --keylength ec-256;
+        ISSUE_RC=$$?;
+        if [ $$ISSUE_RC -ne 0 ]; then
+          echo '❌ 致命错误: 证书签发失败 (退出码: '$$ISSUE_RC')';
+          echo '   请检查: 1) CF_Token 是否有 Zone→DNS→Edit 权限 2) LE 速率限制 3) DERP_DOMAIN 解析是否正确';
+          exit 1;
+        fi;
+
+        # 校验 _ecc 目录已由 acme.sh 创建，再执行 install-cert
+        if [ ! -d \"$$ECC_DIR\" ]; then
+          echo '❌ 致命错误: 签发后 ECC 目录 '$$ECC_DIR' 不存在，install-cert 无法继续';
+          exit 1;
+        fi;
+
         mkdir -p /acme.sh/$$DERP_DOMAIN;
-        /acmebin/acme.sh --install-cert -d $$DERP_DOMAIN --ecc --cert-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt --key-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.key;
+        /acmebin/acme.sh --install-cert -d $$DERP_DOMAIN --ecc \
+          --cert-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt \
+          --key-file  /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.key;
+
         echo '📂 证书目录:'; ls -la /acme.sh/$$DERP_DOMAIN/;
         if [ ! -s \"$$CERT_FILE\" ] || ! grep -q 'BEGIN CERTIFICATE' \"$$CERT_FILE\"; then
-          echo '❌ 致命错误: 证书签发失败，请检查 CF_Token 权限或 LE 速率限制'; exit 1;
+          echo '❌ 致命错误: install-cert 后证书文件为空，请查看上方日志'; exit 1;
         fi;
         echo '✅ 证书签发并安装成功';
       else
-        echo '✅ 证书已存在: $$DERP_DOMAIN';
+        echo '✅ 证书已存在且有效: $$DERP_DOMAIN';
         if [ \"$$ACME_STAGING\" = \"true\" ]; then
-          echo '⚠️  注意: 当前证书为测试证书，切换前请删除 data/acme/ 目录!';
+          echo '⚠️  注意: 当前证书为测试证书，生产切换前请删除 data/acme/ 目录!';
         fi;
       fi;
       chmod 644 /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt 2>/dev/null || true;
@@ -289,7 +313,6 @@ services:
   # Layer 1.5: 静态前端业务 (Frontend)
   # =========================================================================
 
-  # --- YesPlayMusic 纯前端页面 ---
   music-web:
     image: ghcr.io/fenlynn/yesplaymusic:latest
     container_name: music-web
@@ -309,6 +332,60 @@ services:
     # 🚫 无暴露端口，由 nginx-relay 或者 CF Tunnel 代理访问
     depends_on:
       - cloudflared
+
+  # --- Memos (闪念笔记) ---
+  # 多客户端: Web / iOS App / Telegram Bot / API 脚本 均可访问
+  # CF Access: 网页端 (memos.660415.xyz/*) 需要验证
+  #            API 端  (memos.660415.xyz/api/*, /o/*) Bypass 放行给 App 客户端
+  memos:
+    image: neosmemo/memos:stable
+    container_name: memos
+    restart: unless-stopped
+    volumes:
+      # SQLite 数据库存储，纳入 Kopia 原子备份（backup_kopia.sh 会暂停此容器）
+      - ${BASE_DIR:-/opt/vps-dmz}/data/memos:/var/opt/memos
+    environment:
+      # 端口默认 5230（容器内），CF Tunnel 直接映射，宿主机不暴露
+      - MEMOS_MODE=prod
+      - MEMOS_PORT=5230
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - vps_tunnel_net
+    depends_on:
+      - cloudflared
+
+  # --- Alist (网盘聚合) ---
+  # 支持: 阿里云盘 / 百度网盘 / OneDrive / WebDAV / 本地存储 等
+  # 多客户端: Web / Infuse(电视) / WebDAV 客户端(iOS Files) / 播放器
+  # CF Access: 管理网页 (disk.660415.xyz/*) 需要验证
+  #            WebDAV  (disk.660415.xyz/dav/*) Bypass 放行给电视/播放器
+  #            直链    (disk.660415.xyz/d/*, /p/*) Bypass 放行给客户端
+  alist:
+    image: xhofe/alist:latest
+    container_name: alist
+    restart: unless-stopped
+    volumes:
+      # Alist 数据目录包含 SQLite 数据库和配置，纳入 Kopia 原子备份
+      - ${BASE_DIR:-/opt/vps-dmz}/data/alist:/opt/alist/data
+    environment:
+      # 时区设置
+      - TZ=Asia/Shanghai
+      # PUID/PGID 保持默认 0 (root) 以避免权限问题
+      # 初始管理员密码通过 `docker exec alist ./alist admin set <PASSWORD>` 设置
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - vps_tunnel_net
+    depends_on:
+      - cloudflared
+
 
   # =========================================================================
   # Layer 2: 管理面板 (Management)
