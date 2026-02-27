@@ -227,8 +227,28 @@ fi
 echo ""
 echo "📋 Step 4: 更新 Fail2Ban 规则"
 echo "    端口: 22,${TARGET_PORT} (过渡期双监听)"
+
+# 尝试获取当前登录的客户端 IP，加入白名单防误伤自己
+CURRENT_CLIENT_IP=""
+if [ -n "${SSH_CLIENT:-}" ]; then
+    CURRENT_CLIENT_IP=$(echo "$SSH_CLIENT" | awk '{print $1}')
+fi
+
 if [ -f /etc/fail2ban/jail.local ]; then
     dryrun_or_exec "sed -i 's/^port.*/port     = 22,${TARGET_PORT}/' /etc/fail2ban/jail.local"
+    
+    if [ -n "$CURRENT_CLIENT_IP" ]; then
+        echo "    发现当前客户端 IP: ${CURRENT_CLIENT_IP}，加入 ignoreip 白名单"
+        # 检查是否已存在 ignoreip
+        if grep -q "^ignoreip" /etc/fail2ban/jail.local; then
+            if ! grep -q "${CURRENT_CLIENT_IP}" /etc/fail2ban/jail.local; then
+                dryrun_or_exec "sed -i 's/^ignoreip.*/& ${CURRENT_CLIENT_IP}/' /etc/fail2ban/jail.local"
+            fi
+        else
+            dryrun_or_exec "sed -i '/\[sshd\]/a ignoreip = 127.0.0.1/8 ::1 ${CURRENT_CLIENT_IP}' /etc/fail2ban/jail.local"
+        fi
+    fi
+    
     dryrun_or_exec "systemctl restart fail2ban 2>/dev/null || true"
 fi
 
