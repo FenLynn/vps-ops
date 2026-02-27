@@ -75,7 +75,7 @@ services:
     restart: "no"
     command: |
       /bin/sh -c "
-      sleep 10;
+      sleep 5;
 
       # 根据 ACME_STAGING 选择 CA 服务器
       if [ \"$$ACME_STAGING\" = \"true\" ]; then
@@ -91,9 +91,7 @@ services:
         rm -rf /acme.sh/$$DERP_DOMAIN/*;
         /entry.sh --issue --server $$ACME_SERVER -d $$DERP_DOMAIN --dns dns_cf --keylength ec-256;
         mkdir -p /acme.sh/$$DERP_DOMAIN;
-        /entry.sh --install-cert -d $$DERP_DOMAIN --ecc \
-          --cert-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt \
-          --key-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.key;
+        /entry.sh --install-cert -d $$DERP_DOMAIN --ecc --cert-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt --key-file /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.key;
         # 回退: 从 _ecc 目录强制拷贝
         if [ ! -s /acme.sh/$$DERP_DOMAIN/$$DERP_DOMAIN.crt ]; then
           echo '⚠️ 标准安装未成功，从 ECC 目录强制拷贝...';
