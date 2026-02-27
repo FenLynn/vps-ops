@@ -362,11 +362,137 @@ systemctl restart ssh
 
 ---
 
-## 🔒 手动安全加固（所有服务就绪后执行）
+## 🛠️ 初始化完成后：手动收尾操作（每次重建必做）
 
-> **何时执行？** `bootstrap.yml` 跑完、容器正常、且**确认可以用 SSH 私鑰从端口 22222 登录 `sudor` 账号**之后再执行。
->
-> **为什么手动？** 锁端口/禁密码不可逆，操作前必须确认新的连接方式可用。
+> `init_host.sh` 完成后，你的容器已经全部拉起，但还有几件事**必须手动完成**。按以下顺序执行，缺一不可。
+
+### ✅ 第 1 步：开启防火墙（UFW 最终上锁）
+
+`init_host.sh` 已写入 UFW 规则，但为防止把自己锁在门外，最后一步需要**手动确认并启用**：
+
+```bash
+# SSH 进入 VPS（此时仍可用 22 或 22222 端口）
+ssh -p 22 root@<VPS_IP>
+
+# 确认 UFW 规则已就绪（应能看到 22, 22222, 33445, 3478 的 ALLOW 规则）
+sudo ufw status
+
+# 正式启用防火墙（如果未启用）
+sudo ufw --force enable
+
+# 验证状态
+sudo ufw status verbose
+```
+
+### ✅ 第 2 步：更新 `derp.660415.xyz` 的 DNS A 记录
+
+DERP 节点是纯 IP 直连，**Cloudflare Tunnel 无法帮它自动解析 IP**，必须手动更新：
+
+1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com/) → 选择你的域名
+2. `DNS` → 找到 `derp` 的 A 记录 → 修改为**新 VPS 的公网 IP**
+3. **关闭 Proxy（橙色云 → 灰色云）**，DERP 需要纯 DNS 直连
+
+```bash
+# 在 VPS 上确认公网 IP
+curl ifconfig.me
+```
+
+### ✅ 第 3 步：申请 DERP 正式 TLS 证书（首次或重建后）
+
+> ⚠️ LE 每周每域名限 5 次正式证书。**开发/演练阶段请保持 `.env` 中 `ACME_STAGING=true`**，只在正式上线时才切换为 `false`。
+
+**正常流程（`acme-init` 自动完成）：**
+
+```bash
+cd /opt/vps-dmz
+
+# 确认 .env 中 ACME_STAGING=false
+grep ACME_STAGING .env
+
+# 如果还是 true，切换为 false
+sed -i 's/ACME_STAGING=true/ACME_STAGING=false/' .env
+
+# 清除测试证书，重新签发
+rm -rf data/acme/*
+docker compose up -d --force-recreate acme acme-init derper
+
+# 追踪进度（DNS-01 验证约需 2-3 分钟）
+docker logs -f acme-init
+```
+
+**如果 `acme-init` 签发失败，走应急手工路径：**
+
+```bash
+cd /opt/vps-dmz
+
+# 手动从 acme daemon 签发
+docker exec acme /entry.sh --issue --server letsencrypt \
+  -d ${DERP_DOMAIN} --dns dns_cf --keylength ec-256
+
+# 安装到 derper 读取路径
+mkdir -p data/acme/${DERP_DOMAIN}
+docker exec acme /entry.sh --install-cert -d ${DERP_DOMAIN} --ecc \
+  --cert-file /acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.crt \
+  --key-file /acme.sh/${DERP_DOMAIN}/${DERP_DOMAIN}.key
+
+# 重启 derper
+docker compose restart derper
+
+# 验证（应看到 "serving on :33445 with TLS"）
+docker logs derper --tail 5
+```
+
+### ✅ 第 4 步：SSH 安全加固（可选但推荐）
+
+确认能用 22222 端口登录 `sudor` 账号后，执行锁定：
+
+```bash
+# 在 VPS 上执行（必须已通过 22222 验证可正常登录再做此步）
+
+# ❗ Ubuntu 24.04 必须先禁用 ssh.socket
+sudo systemctl disable --now ssh.socket
+sudo systemctl enable ssh.service
+sudo systemctl restart ssh
+
+# 验证 22222 端口已监听
+ss -tulpn | grep 22222
+
+# 开启防火墙（已在第 1 步完成则跳过）
+sudo ufw allow 22222/tcp
+sudo ufw --force enable
+```
+
+然后去**云控制台安全组**将端口 22 的入方向规则改为**拒绝**。
+
+### ✅ 第 5 步（可选）：开启 Tailscale SSH
+
+```bash
+# VPS 已加入 Tailscale（init_host.sh 完成），一行开启
+sudo tailscale up --ssh
+# 之后可从任意 TS 设备：ssh root@<tailscale主机名>
+```
+
+### 📊 收尾完成状态检查
+
+```bash
+# 全部容器应处于 Up 状态（acme-init 是一次性任务，不会在列表里）
+docker ps
+
+# derper 应显示 TLS 服务成功
+docker logs derper --tail 3
+
+# cloudflared 4 条隧道在线
+docker logs cloudflared --tail 5 | grep "Registered tunnel"
+```
+
+---
+
+
+
+## 🔒 SSH 深度配置参考（进阶 / 出问题时查）
+
+> 正常重建流程请跟随上方「手动收尾操作」章节。本章节是 SSH 配置的**详细技术参考**，在以下场景参考：端口无法连接、需要手动重置 SSH 配置、或遇到 Ubuntu 24.04 `ssh.socket` 问题。
+
 
 ### 第一步：确保 SSH 通道畅通（ Ubuntu 24.04 必读）
 
