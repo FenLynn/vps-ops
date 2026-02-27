@@ -8,9 +8,9 @@
 #   - 激活 Tailscale SSH 和加入 Tailnet
 #
 # 用法:
-#   sudo bash ssh_harden.sh --dry-run   # 预览模式: 只打印将要执行的操作，不改任何文件
-#   sudo bash ssh_harden.sh             # 执行模式: 自动备份并执行所有加固
-#   sudo bash ssh_harden.sh --rollback  # 回退模式: 从最近备份恢复 sshd_config
+#   sudo -E bash ssh_harden.sh --dry-run   # 预览模式: 只打印将要执行的操作，不改任何文件
+#   sudo -E bash ssh_harden.sh             # 执行模式: 自动备份并执行所有加固
+#   sudo -E bash ssh_harden.sh --rollback  # 回退模式: 从最近备份恢复 sshd_config
 #
 # ⚠️  在新终端窗口验证 SSH 连接成功前，请勿关闭当前 SSH 会话！
 # =============================================================================
@@ -77,7 +77,7 @@ disable_ssh_socket() {
 
 # ─── ROOT 检查 ────────────────────────────────────────────────────────────────
 if [ "$(id -u)" -ne 0 ]; then
-    echo "❌ 需要 root 权限运行。请使用: sudo bash $0 $*"
+    echo "❌ 需要 root 权限运行。请使用: sudo -E bash $0 $*"
     exit 1
 fi
 
@@ -198,7 +198,7 @@ if [ "$MODE" = "execute" ]; then
     mkdir -p /etc/ssh/sshd_config.d
     cat > "${DROPIN_FILE}" << EOF
 # SSH 加固配置 (由 vps-ops ssh_harden.sh 写入于 $(date))
-# 回退: sudo bash /opt/vps-dmz/scripts/ssh_harden.sh --rollback
+# 回退: sudo -E bash /opt/vps-dmz/scripts/ssh_harden.sh --rollback
 Port ${TARGET_PORT}
 PermitRootLogin no
 PasswordAuthentication no
@@ -313,8 +313,8 @@ echo ""
 echo "=============================================================="
 if [ "$MODE" = "dry-run" ]; then
     echo "  ✅ [DRY-RUN] 以上是将要执行的全部操作"
-    echo "  执行加固: sudo bash $0"
-    echo "  回退加固: sudo bash $0 --rollback"
+    echo "  执行加固: sudo -E bash $0"
+    echo "  回退加固: sudo -E bash $0 --rollback"
 else
     echo "  ✅ SSH 加固完成！"
     echo ""
@@ -324,6 +324,6 @@ else
     echo "  如果新端口连接成功，可选择移除 22 端口放行:"
     echo "     ufw delete allow 22/tcp"
     echo ""
-    echo "  如需回退: sudo bash $0 --rollback"
+    echo "  如需回退: sudo -E bash $0 --rollback"
 fi
 echo "=============================================================="

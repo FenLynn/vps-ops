@@ -443,26 +443,27 @@ docker compose restart derper
 docker logs derper --tail 5
 ```
 
-### ✅ 第 4 步：SSH 安全加固（可选但推荐）
+### ✅ 第 4 步：SSH 安全加固（必做）
 
-确认能用 22222 端口登录 `sudor` 账号后，执行锁定：
+`init_host.sh` 完成后，系统仍然允许密码通过 `22` 端口登录。我们需要运行专门的加固脚本：修改为仅公钥认证的新端口，并激活 Tailscale SSH。
 
 ```bash
-# 在 VPS 上执行（必须已通过 22222 验证可正常登录再做此步）
+# ⚠️ 非常重要：必须带上 -E 参数，让脚本能获取你的当前物理 IP 以注入 Fail2Ban 白名单
+# 如果不加 -E，你反而会在加固瞬间被 Fail2Ban 当成爆破者无情封禁！
 
-# ❗ Ubuntu 24.04 必须先禁用并 mask ssh.socket
-# mask 是关键：彻底屏蔽 ssh.socket，防止 apt 在后续安装包时重新激活它
-sudo systemctl disable --now ssh.socket
-sudo systemctl mask ssh.socket
-sudo systemctl enable ssh.service
-sudo systemctl restart ssh
+# 1. 先预览加固操作
+sudo -E bash /opt/vps-dmz/scripts/ssh_harden.sh --dry-run
 
-# 验证 22222 端口已监听
-ss -tulpn | grep 22222
+# 2. 正式执行加固
+sudo -E bash /opt/vps-dmz/scripts/ssh_harden.sh
+```
 
-# 开启防火墙（已在第 1 步完成则跳过）
-sudo ufw allow 22222/tcp
-sudo ufw --force enable
+**执行成功后，请立即新开一个终端窗口**测试能否通过新指纹端口免密登录（`ssh -p 22222 sudor@<VPS_IP>`）。
+确认无误后，再使用下面命令切断旧的 22 端口：
+
+```bash
+sudo ufw delete allow 22/tcp
+sudo ufw reload
 ```
 
 然后去**云控制台安全组**将端口 22 的入方向规则改为**拒绝**。
