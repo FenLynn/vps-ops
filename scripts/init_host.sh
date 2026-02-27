@@ -44,6 +44,20 @@ send_pushplus() {
 # 设置全局错误捕捉，如果脚本非正常退出，发送警告
 trap 'rc=$?; if [ $rc -ne 0 ]; then send_pushplus "[VPS-告警] 初始化或重建异常中断" "开荒脚本在执行时发生致命错误退出！<br/>最后退出状态码: ${rc}。<br/>请立即通过云提供商后台 VNC 检查日志！"; fi' EXIT
 
+# 禁用 Ubuntu 22.10+ 的 ssh.socket，将端口监听控制权还给 sshd_config
+# 背景：Ubuntu 24.04 引入 systemd socket activation，ssh.socket 固守 22 端口，
+#       导致 sshd_config 中的 Port 配置失效，自定义端口无法被监听。
+disable_ssh_socket_if_needed() {
+    if systemctl is-active ssh.socket &>/dev/null || \
+       systemctl is-enabled ssh.socket 2>/dev/null | grep -q "enabled"; then
+        echo "  ⚙️  检测到 ssh.socket 激活 (Ubuntu 22.10+)，正在禁用以恢复传统端口控制..."
+        systemctl disable --now ssh.socket 2>/dev/null || true
+        echo "  ✅ ssh.socket已禁用，端口控制权归还给 sshd_config"
+    fi
+    # 确保 ssh.service 为传统常驻进程模式并开机自启
+    systemctl enable ssh.service 2>/dev/null || true
+}
+
 # 核心路径
 BASE_DIR="${BASE_DIR:-/opt/vps-dmz}"
 
@@ -323,6 +337,9 @@ sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd
 
 echo "  ✅ SSH 宽松模式配置写入 ${SSHD_DROPIN} 及 /etc/ssh/sshd_config"
 
+# 夺回端口控制权：禁用 ssh.socket（Ubuntu 24.04+ 必须）
+disable_ssh_socket_if_needed
+
 # SELinux 处理 (如有，通常只在 CentOS/RHEL 系上)
 if command -v getenforce &> /dev/null && [ "$(getenforce)" != "Disabled" ]; then
     echo "  - SELinux: 添加端口 ${SSH_PORT}..."
@@ -535,6 +552,19 @@ if [ "$OS" = "ubuntu" ] || [ "$OS" = "debian" ]; then
     systemctl restart ssh 2>/dev/null || service ssh restart 2>/dev/null || true
 else
     systemctl restart sshd 2>/dev/null || true
+fi
+
+# 验证自定义端口是否真正被监听（防止 ssh.socket 静默劫持端口导致无声失败）
+if [ "${SSH_PORT}" != "22" ]; then
+    sleep 2
+    if ss -tulpn 2>/dev/null | grep -q ":${SSH_PORT}"; then
+        echo "  ✅ SSH 已在端口 ${SSH_PORT} 上成功监听"
+    else
+        echo "  ❌ 严重警告: SSH 未监听在端口 ${SSH_PORT}！可能是 ssh.socket 仍在接管端口。"
+        echo "     请通过 VNC 手动执行: systemctl disable --now ssh.socket && systemctl restart ssh"
+        send_pushplus "[VPS-告警] SSH 端口绑定失败" \
+            "SSH 服务重启后未监听到端口 ${SSH_PORT}，可能是 ssh.socket 仍在接管端口。<br/>请立即通过 VNC 手动排查！"
+    fi
 fi
 
 # 设置 crontab
