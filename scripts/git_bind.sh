@@ -77,6 +77,9 @@ git fetch origin main
 # --mixed: HEAD 指向 origin/main，暂存区同步，工作区文件保持不变
 git reset --mixed origin/main
 
+# ✅ 【新增】设置本地 main 分支跟踪远程 origin/main 分支，解决直接 git pull 报错的问题
+git branch --set-upstream-to=origin/main main
+
 echo ""
 echo "✅ Git 仓库绑定完成！"
-echo "   后续可直接在 $DEPLOY_DIR 执行: git pull origin main"
+echo "   后续可直接在 $DEPLOY_DIR 执行: git pull"
