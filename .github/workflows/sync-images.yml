@@ -41,6 +41,8 @@ jobs:
             "ghcr.io/gethomepage/homepage:latest|homepage:latest"
             "nginx:alpine|nginx:alpine"
             "binaryify/netease_cloud_music_api:latest|netease_cloud_music_api:latest"
+            "neosmemo/memos:stable|memos:stable"
+            "xhofe/alist:latest|alist:latest"
           )
 
           for item in "${IMAGES[@]}"; do
@@ -91,6 +93,8 @@ jobs:
             homepage
             nginx
             netease_cloud_music_api
+            memos
+            alist
           )
 
           for pkg in "${PACKAGES[@]}"; do

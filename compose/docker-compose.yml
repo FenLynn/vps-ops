@@ -338,7 +338,7 @@ services:
   # CF Access: 网页端 (memos.660415.xyz/*) 需要验证
   #            API 端  (memos.660415.xyz/api/*, /o/*) Bypass 放行给 App 客户端
   memos:
-    image: neosmemo/memos:stable
+    image: ghcr.io/fenlynn/memos:stable
     container_name: memos
     restart: unless-stopped
     volumes:
@@ -365,7 +365,7 @@ services:
   #            WebDAV  (disk.660415.xyz/dav/*) Bypass 放行给电视/播放器
   #            直链    (disk.660415.xyz/d/*, /p/*) Bypass 放行给客户端
   alist:
-    image: xhofe/alist:latest
+    image: ghcr.io/fenlynn/alist:latest
     container_name: alist
     restart: unless-stopped
     volumes:
