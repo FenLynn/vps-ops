@@ -445,7 +445,7 @@ docker logs derper --tail 5
 
 ### ✅ 第 4 步：SSH 安全加固（必做）
 
-`init_host.sh` 完成后，系统仍然允许密码通过 `22` 端口登录。我们需要运行专门的加固脚本：修改为仅公钥认证的新端口，并激活 Tailscale SSH。
+`init_host.sh` 完成后，系统仍然允许密码通过 `22` 端口登录。我们需要运行专门的加固脚本：修改为仅公钥认证的新端口。
 
 ```bash
 # ⚠️ 非常重要：必须带上 -E 参数，让脚本能获取你的当前物理 IP 以注入 Fail2Ban 白名单
@@ -560,10 +560,10 @@ ssh -i vps-ops-key -p 22222 root@<VPS_IP>
 > 应用 Tailscale WireGuard 隐道 + 短效证书，实现公网零封锁、查证藏形。  
 > **适合场景：** 日常运维首选，换了设备也能震来登录。
 
-### 开启方法（在 VPS 上执行一条命令）
+### 开启方法（在 VPS 上执行一条命令，可选）
 
 ```bash
-# 前提: VPS 已加入 Tailscale 网络（init_host.sh 已自动完成）
+# 前提: VPS 已加入 Tailscale 网络
 sudo tailscale up --ssh
 ```
 

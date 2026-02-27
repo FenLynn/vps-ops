@@ -5,7 +5,7 @@
 # 职责:
 #   - 修改 SSH 端口、禁 root 登录、禁密码认证、纯公钥模式
 #   - 更新 UFW/Fail2Ban 匹配新端口
-#   - 激活 Tailscale SSH 和加入 Tailnet
+#   - 激活 Tailscale 并加入 Tailnet
 #
 # 用法:
 #   sudo -E bash ssh_harden.sh --dry-run   # 预览模式: 只打印将要执行的操作，不改任何文件
@@ -282,19 +282,14 @@ fi
 
 # ─── Step 7: Tailscale 激活 ────────────────────────────────────────────────
 echo ""
-echo "📋 Step 7: 激活 Tailscale"
+echo "📋 Step 7: 激活 Tailscale (普通内网穿透模式)"
 if command -v tailscale >/dev/null 2>&1; then
     if [ -n "${TAILSCALE_AUTH_KEY:-}" ]; then
-        echo "    检测到 TAILSCALE_AUTH_KEY，自动加入 Tailnet + 激活 Tailscale SSH"
-        dryrun_or_exec "tailscale up --authkey='${TAILSCALE_AUTH_KEY}' --ssh --accept-routes 2>/dev/null || tailscale set --ssh"
+        echo "    检测到 TAILSCALE_AUTH_KEY，自动加入 Tailnet"
+        dryrun_or_exec "tailscale up --authkey='${TAILSCALE_AUTH_KEY}' --accept-routes 2>/dev/null || true"
     else
         echo "    未检测到 TAILSCALE_AUTH_KEY，需要手动执行:"
-        echo "    tailscale up --authkey=<KEY> --ssh"
-        if [ "$MODE" = "execute" ]; then
-            # 尝试激活 SSH（如果已经在 Tailnet 中）
-            tailscale set --ssh 2>/dev/null && echo "  ✅ Tailscale SSH 已激活（已在 Tailnet 中）" || \
-                echo "  ⚠️  Tailscale SSH 激活跳过（尚未加入 Tailnet，手动执行: tailscale up --ssh）"
-        fi
+        echo "    tailscale up --authkey=<KEY>"
     fi
 else
     echo "    ⚠️  Tailscale 未安装，跳过"
