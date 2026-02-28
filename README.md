@@ -195,6 +195,52 @@ VPS 部署后的运行时目录：
 3. Post-thaw: `docker unpause` 瞬间解冻恢复业务响应 (< 10 秒阻断)
 4. Maintenance: 宿主机每日凌晨 3 点，后台清理过期快照。
 
+### 连通性测试：如何验证 R2 是否挂载成功？
+只需在 VPS 终端输入以下单行检测命令（利用底层 Kopia 容器直连）：
+```bash
+docker exec kopia kopia repository status
+```
+* **成功特征**：如果终端返回 `Description: ...` 以及一大串云端详细容量和连接信息，说明不仅通讯顺畅，连 Kopia 初始化密码握手也完全成功！
+* **或者更直接的测试法：** 手动跑一次完整的备份快照触发器：
+```bash
+sudo bash /opt/vps-dmz/scripts/backup_kopia.sh
+```
+* 看到 `✅ 快照创建成功` 即大功告成！
+
+---
+
+## 📊 容量规划与宿主机防爆指南
+
+为了让 2C2G 这种小带宽小硬盘的平民 VPS 能够长年累月稳定运行不宕机（防止 `No space left on device`），本项目在底层设计了双重防爆机制：
+
+### 1. Memos 富媒体存储切割 (S3 接入)
+Memos 的纯文本笔记存储在 SQLite 数据库中，占用极小。但如果直接粘贴上传大量高分辨率图片或视频，会导致服务器磁盘快速耗尽，并极大拖慢每日的 Kopia 增量快照和 R2 的传输。
+
+**强烈建议：将 Memos 图床外挂至 Cloudflare R2 或其他 S3 兼容存储**
+1. 登录 Memos 网页端，点击左下角的 `设置` -> `存储策略`。
+2. 点击右上角 `创建`，选择 **S3 兼容存储**。
+3. 请严格按照你 `.env` 文件中的 Cloudflare R2 变量进行以下映射填写：
+   * **Endpoint（端点）**: 填入 `.env` 中的 `R2_ENDPOINT_URL`（需要补上 `https://`，例如：`https://<你的AccountID>.r2.cloudflarestorage.com`）。
+   * **Region（区域）**: Cloudflare R2 统一填 **`auto`**。
+   * **Access key id（访问密钥ID）**: 填入 `.env` 中的 `R2_ACCESS_KEY_ID`。
+   * **Access key secret（私有访问密钥）**: 填入 `.env` 中的 `R2_SECRET_ACCESS_KEY`。
+   * **Bucket（存储桶名称）**: 填入 `.env` 中的 `R2_BUCKET`（例如 `vps-backup`，或者你可以去 CF 建一个专门存 Memos 的桶）。
+4. 保存后将该策略设为 **默认 (Default)** 🌟。
+   * *(🎯 **如何验证是否配置正确？**：配置完后去发一条新 Memo，直接上传一张截图即可！如果图片立刻加载出来，且你在 Cloudflare R2 的面板里看到了产生的新文件，就说明你配置的 S3 凭据完全且绝对正确！)*
+
+> 💡 **垃圾回收机制 (孤儿文件清理) 说明**：
+> Memos 对附件实行**“弱绑定”**设计以防止其他关联笔记碎图。当你在 Memos 删除一条带有本地上传图片的记录时，R2 桶里的源文件**不会被自动关联删除**。
+> **如何彻底清理云端无用文件？**：前往 Memos 网页左侧的 **资源库 (Resources)** 菜单，这里汇集了所有的云端附件。在这个总控制台里选中并删除图片时，Memos 才会真正向 Cloudflare R2 发送物理销毁请求。
+
+这样，未来粘贴到 Memos 的所有附件图片都会越过 VPS 的本地磁盘，直接推送到 R2 云端对象存储里。配合上 Cloudflare 的 CDN，这台 VPS 就真正成为了一台无状态的应用网关！
+
+### 2. Docker 系统级死锁日志限制
+不受控的容器 JSON 日志极易在几个月内吃光几十 GB 的服务器物理硬盘。
+本项目实行了**系统级与项目级双保险日志熔断配置**：
+- **全局 Docker daemon 级限制**：在开荒时刻，`init_host.sh` 脚本已经在宿主机的 `/etc/docker/daemon.json` 中强行写入了规则，规定在这台物理机上跑的任何一个普通容器，它的日志都被死死封印在 `最大 10MB × 最多保留 3 个分片`（总计上限 30MB）的物理红线内。
+- **Compose 业务级强制定义**：不仅系统底层有门神，在我们唯一的控制台 `docker-compose.yml` 中，不管是接活最猛的 `fastapi-gateway` 还是底层的 `nginx-relay`，每一条业务线的 `logging` 都被显式地挂上了这副枷锁。
+系统永远不会因为几个月没人管，被日志文件撑爆而宕机！
+
 ---
 
 ## 🚧 完整重构日志与无限细节避坑指南 (v2.0 巨变核心)
@@ -335,7 +381,26 @@ systemctl restart ssh
 
 ---
 
-### 第四步：录入 GitHub Secrets (这是最重要的一步！)
+### 第四步：获取 Cloudflare R2 存储桶密钥 (用于备份与图床)
+
+R2 是 Cloudflare 的对象存储服务。我们需要为它生成专属的 API 令牌，这个令牌包含 Access Key 和 Secret Key。
+
+1.  **开通 R2 (首次使用)**: 登录 Cloudflare -> 左侧菜单点击 `R2` -> 按照提示开通服务（需要绑定支付方式但前 10GB 免费且不收超出流量费）。
+2.  **创建存储桶**: 在 R2 页面点击 `创建存储桶`，起个名字例如 `vps-backup`，位置选 `自动`。
+3.  **生成 API 令牌 (获取 Key)**:
+    - 在 R2 概览页面，右上角或者左侧菜单找到 `管理 R2 API 令牌` (Manage R2 API Tokens)。
+    - 点击 `创建 API 令牌`。
+    - **权限必须选**: `对象读和写` (Object Read and Write) 这是最关键的。
+    - 针对特定存储桶（可选）：强烈建议指定为你刚创建的那个存储桶，不要给所有的。
+    - 点击创建。
+4.  **复制密钥**: 页面会一次性生成并显示两个关键字符串（关掉网页就再也看不到了，务必第一时间复制进你的 `.env`）：
+    - **访问密钥 ID (Access Key ID)**: 较短的一串，对应 `.env` 中的 `R2_ACCESS_KEY_ID`。
+    - **机密访问密钥 (Secret Access Key)**: 很长的一串（包含字母数字特征），对应 `.env` 中的 `R2_SECRET_ACCESS_KEY`。
+    - **Endpoint 链接**: 也是在这个页面或者存储桶的设置页，你能看到一个指向你账户的 `https://<Account_ID>.r2.cloudflarestorage.com` 链接，这就是 `R2_ENDPOINT_URL`（注意填入 `.env` 时默认不带 https://）。
+
+---
+
+### 第五步：录入 GitHub Secrets (这是最重要的一步！)
 
 1.  打开你的代码仓库页面 -> `Settings` -> `Secrets and variables` -> `Actions`。
 2.  点击 `New repository secret`，一个个录入这 7 个密钥：
@@ -476,7 +541,37 @@ docker logs alist | grep -i password
 
 **大功告成！** 打开浏览器：
 - 访问 `https://memos.660415.xyz` 进行初始基础设置。
-- 访问 `https://alist.660415.xyz` 用刚才打出来的 Admin 密码登录。
+- 访问 `https://alist.660415.xyz` 用刚才打出来的 Admin 密码（或你在 .env 中设置的密码）登录。
+
+---
+
+### ✅ 第 6 步：Alist 核心网盘挂载指南 (以阿里/百度为例)
+
+Alist 挂载网盘的核心逻辑就是：**找到 Alist 官方指定链接 → 扫码/授权获取 Token → 填回 Alist 后台**。
+
+#### ☁️ 挂载阿里云盘 (强烈推荐：阿里云盘 Open)
+为了防止封号且获得官方不限速体验，**必须选择带 `Open` 字样的驱动**。
+
+1. **选择驱动：** 在 Alist 后台 `存储` -> `添加` 中，驱动选择 **阿里云盘 Open**。
+2. **挂载路径：** 填入 `/阿里云盘`（会在 Alist 首页显示的文件夹名字）。
+3. **获取刷新令牌 (Refresh Token)：**
+   - 访问 Alist 官方 Token 提取器：[获取阿里云盘 Open Token](https://alist.nn.ci/zh/guide/drivers/aliyundrive_open.html)
+   - 扫码登录后获取一长串字符的 Refresh Token。
+   - *(🔥 避坑：如果页面提示 `Too Many Requests`，说明使用官方公共通道获取 Token 的人太多被阿里限流了。此时取消勾选“使用自己的客户端信息”过几分钟再试，或者使用备用通道：[Alist Auth 备用站](https://alist.auth.nn.ci/tool/aliyundrive/request) 扫码获取)*。
+4. **填入 Token：** 将获取的 Token 填入 Alist 的 **刷新令牌** 栏，根文件夹 `Oauth-Token` 等其他配置全保持默认。
+5. 点击下方 **保存**，状态显示 `Work` 即挂载成功。
+
+#### ☁️ 挂载百度网盘
+百度网盘限速机制依旧存在，但配合 Alist 方便本地播放器挂载。
+
+1. **选择驱动：** 添加存储，驱动选择 **百度网盘**。
+2. **挂载路径：** 填入 `/百度网盘`。
+3. **获取刷新令牌 (Refresh Token)：**
+   - 访问提取器：[获取百度网盘 Token](https://alist.nn.ci/zh/guide/drivers/baidu.html)
+   - 网页授权登录后获取 Refresh Token。
+4. **填入 Token：** 填入 Alist 的 **刷新令牌** 栏。
+5. **客户端 ID / 密钥**：直接留空，使用内置默认额度。
+6. 点击 **保存**，状态显示 `Work` 即可。
 
 ---
 
