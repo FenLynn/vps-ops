@@ -9,9 +9,9 @@ BASE_DIR="${BASE_DIR:-/opt/vps-dmz}"
 
 echo "=== Docker Prune Start: $(date) ==="
 
-# 仅清理悬挂 (dangling) 镜像 + 停止的容器 + 无主网络（不加 --volumes 保护数据卷）
+# 仅清理悬挂 (dangling) 镜像 + 无主网络（不加 --volumes 保护数据卷）
+# 🚨 警告: 严禁加入 `docker container prune`! 否则意外停止的业务容器（或正在更新、或刚跑完的一次性初始化容器）会被永久无情删除！
 docker image prune -f
-docker container prune -f
 docker network prune -f
 
 # 🚫 故意不执行 docker volume prune：kopia 等服务的命名卷不该被自动清理

@@ -619,6 +619,15 @@ cd ${BASE_DIR}
 docker compose pull --ignore-pull-failures
 docker compose up -d
 
+# --- 业务初始化配置 ---
+echo "  - ⏳ 等待 Alist 启动 (15秒) 并在需要时设置初始密码..."
+sleep 15
+if [ -n "${ALIST_PASSWD:-}" ]; then
+    # 尝试设置密码，如果因为数据库未就绪失败则不影响整体脚本退出
+    docker exec alist ./alist admin set "${ALIST_PASSWD}" >/dev/null 2>&1 || echo "  ⚠️ Alist 密码设置可能未成功，请后续手动检查。"
+    echo "  ✅ Alist 初始密码已根据 .env 自动设置完毕"
+fi
+
 echo ""
 echo "=============================================="
 echo "✅ VPS-OPS v2.0 部署完成!"
